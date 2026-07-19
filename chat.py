@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from rag_agent import build_agent
+from rag_agent import build_agent, get_hybrid_retriever
+from verify import verify_answer, format_verification
+from config import settings
 
 
 def message_text(message: AIMessage) -> str:
@@ -29,7 +31,20 @@ def main() -> None:
             continue
         result = agent.invoke({"messages": [*history, HumanMessage(content=question)]})
         answer = result["messages"][-1]
-        print(f"\n助手：{message_text(answer)}")
+        answer_text = message_text(answer)
+        print(f"\n助手：{answer_text}")
+
+        # --- 答案验证（任务二） ---
+        if settings.verify_enabled:
+            try:
+                retriever = get_hybrid_retriever()
+                verify_docs = retriever.search(question)
+                verification = verify_answer(question, answer_text, verify_docs)
+                if verification:
+                    print(format_verification(verification))
+            except Exception:
+                pass  # 验证失败不应中断对话
+
         history.extend([HumanMessage(content=question), answer])
 
 

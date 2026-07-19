@@ -11,6 +11,7 @@ from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.tools import tool
 
 from config import settings
+from retrieval import HybridRetriever
 
 
 @lru_cache(maxsize=1)
@@ -32,17 +33,22 @@ def get_embeddings():
 
 
 @lru_cache(maxsize=1)
-def get_retriever():
-    """打开已持久化的 Chroma 索引。"""
+def get_vector_store():
+    """打开已持久化的 Chroma 向量库。"""
     settings.validate()
     if not settings.persist_dir.exists():
         raise RuntimeError("尚未创建知识库。请先运行：python ingest.py")
-    store = Chroma(
+    return Chroma(
         collection_name=settings.collection_name,
         persist_directory=str(settings.persist_dir),
         embedding_function=get_embeddings(),
     )
-    return store.as_retriever(search_kwargs={"k": settings.top_k})
+
+
+@lru_cache(maxsize=1)
+def get_hybrid_retriever():
+    """获取混合检索器（BM25 + 向量 + Reranker）。"""
+    return HybridRetriever(get_vector_store())
 
 
 def format_documents(documents: list[Document]) -> str:
@@ -61,7 +67,7 @@ def format_documents(documents: list[Document]) -> str:
 def search_knowledge_base(query: str) -> str:
     """在本地知识库中检索与问题相关的材料。回答知识库相关问题前必须调用此工具。"""
     try:
-        return format_documents(get_retriever().invoke(query))
+        return format_documents(get_hybrid_retriever().search(query))
     except Exception as exc:
         return (
             "知识库检索暂时不可用："

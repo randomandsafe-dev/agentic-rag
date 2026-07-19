@@ -12,6 +12,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from config import ROOT_DIR, settings
 from rag_agent import get_embeddings
+from retrieval import build_bm25_index
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}
 
@@ -54,6 +55,8 @@ def main() -> None:
         collection_name=settings.collection_name,
         persist_directory=str(settings.persist_dir),
     )
+    # 同时构建 BM25 稀疏检索索引
+    build_bm25_index(chunks, settings.persist_dir)
     print(f"入库完成：{len(documents)} 个文档，{len(chunks)} 个文本块。")
 
 

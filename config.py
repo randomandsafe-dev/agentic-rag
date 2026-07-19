@@ -31,6 +31,14 @@ class Settings:
     api_key: str | None = os.getenv("OPENAI_API_KEY")
     base_url: str | None = os.getenv("OPENAI_BASE_URL")
     top_k: int = int(os.getenv("RAG_TOP_K", "4"))
+    # --- 混合检索 ---
+    hybrid_enabled: bool = os.getenv("HYBRID_ENABLED", "true").lower() == "true"
+    # --- Reranker ---
+    reranker_enabled: bool = os.getenv("RERANKER_ENABLED", "true").lower() == "true"
+    reranker_model: str = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+    rerank_top_k: int = int(os.getenv("RERANK_TOP_K", "10"))
+    # --- 答案验证 ---
+    verify_enabled: bool = os.getenv("VERIFY_ENABLED", "true").lower() == "true"
 
     def validate(self) -> None:
         if not self.api_key:
