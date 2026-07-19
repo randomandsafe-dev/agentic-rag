@@ -34,7 +34,8 @@ def load_documents(data_dir: Path) -> list[Document]:
     return documents
 
 
-def main() -> None:
+def ingest_documents() -> tuple[int, int]:
+    """重建本地索引，并返回“文档数、文本块数”。"""
     settings.validate()
     documents = load_documents(settings.data_dir)
     if not documents:
@@ -54,7 +55,12 @@ def main() -> None:
         collection_name=settings.collection_name,
         persist_directory=str(settings.persist_dir),
     )
-    print(f"入库完成：{len(documents)} 个文档，{len(chunks)} 个文本块。")
+    return len(documents), len(chunks)
+
+
+def main() -> None:
+    document_count, chunk_count = ingest_documents()
+    print(f"入库完成：{document_count} 个文档，{chunk_count} 个文本块。")
 
 
 if __name__ == "__main__":

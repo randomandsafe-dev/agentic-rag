@@ -28,6 +28,16 @@ python ingest.py
 python chat.py
 ```
 
+## Web UI
+
+安装依赖后启动：
+
+```powershell
+streamlit run app.py
+```
+
+浏览器会自动打开。页面支持多轮问答、流式显示回答、展示回答来源，并可在侧栏上传 `.md`、`.txt`、`.pdf` 后重建索引。
+
 ## 工作方式
 
 ```text
