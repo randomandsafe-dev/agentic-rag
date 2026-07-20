@@ -65,9 +65,18 @@ def format_documents(documents: list[Document]) -> str:
 
 @tool
 def search_knowledge_base(query: str) -> str:
-    """在本地知识库中检索与问题相关的材料。回答知识库相关问题前必须调用此工具。"""
+    """在本地知识库中检索与问题相关的材料。回答知识库相关问题前必须调用此工具。
+    内部自动进行查询改写、相关性判断、最多两次重试（可通过 .env 配置）。"""
     try:
+<<<<<<< HEAD
         return format_documents(get_hybrid_retriever().search(query))
+=======
+        from retrieval_pipeline import get_retrieval_pipeline
+
+        pipeline = get_retrieval_pipeline()
+        documents = pipeline.retrieve(query)
+        return format_documents(documents)
+>>>>>>> origin/feature/query-rewrite-relevance-judge
     except Exception as exc:
         return (
             "知识库检索暂时不可用："

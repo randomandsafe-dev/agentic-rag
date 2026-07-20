@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,6 +11,14 @@ from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).resolve().parent
 load_dotenv(ROOT_DIR / ".env")
+
+
+def _bool_env(key: str, default: bool = True) -> bool:
+    """解析布尔型环境变量。"""
+    val = os.getenv(key, "").strip().lower()
+    if not val:
+        return default
+    return val in ("true", "1", "yes", "on")
 
 
 @dataclass(frozen=True)
@@ -40,6 +48,18 @@ class Settings:
     # --- 答案验证 ---
     verify_enabled: bool = os.getenv("VERIFY_ENABLED", "true").lower() == "true"
 
+    # ---- 检索增强配置 (新增) ----
+    rewrite_enabled: bool = field(
+        default_factory=lambda: _bool_env("REWRITE_ENABLED", True)
+    )
+    relevance_judge_enabled: bool = field(
+        default_factory=lambda: _bool_env("RELEVANCE_JUDGE_ENABLED", True)
+    )
+    relevance_strategy: str = os.getenv("RELEVANCE_STRATEGY", "llm").lower()
+    max_retries: int = int(os.getenv("MAX_RETRIES", "2"))
+    relevance_threshold: int = int(os.getenv("RELEVANCE_THRESHOLD", "2"))
+    rewrite_model: str | None = os.getenv("REWRITE_MODEL") or None
+
     def validate(self) -> None:
         if not self.api_key:
             raise RuntimeError(
@@ -48,6 +68,10 @@ class Settings:
         if self.embedding_provider not in {"local", "openai"}:
             raise RuntimeError(
                 "EMBEDDING_PROVIDER 只能是 local 或 openai。"
+            )
+        if self.relevance_strategy not in {"llm", "vector", "hybrid"}:
+            raise RuntimeError(
+                "RELEVANCE_STRATEGY 只能是 llm、vector 或 hybrid。"
             )
 
 
