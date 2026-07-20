@@ -7,11 +7,13 @@ from functools import lru_cache
 from langchain.agents import create_agent
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.tools import tool
 
 from config import settings
 from retrieval import HybridRetriever
+from web_search import format_web_documents, search_web_documents
 
 
 @lru_cache(maxsize=1)
@@ -60,7 +62,7 @@ def format_documents(documents: list[Document]) -> str:
         page = document.metadata.get("page")
         page_label = f"，第 {page + 1} 页" if isinstance(page, int) else ""
         sections.append(f"[来源 {index}: {source}{page_label}]\n{document.page_content}")
-    return "\n\n".join(sections)
+    return "【本地知识库结果】\n" + "\n\n".join(sections)
 
 
 @tool
@@ -76,10 +78,47 @@ def search_knowledge_base(query: str) -> str:
         )
 
 
+@tool
+def search_web(query: str) -> str:
+    """搜索互联网以获取实时、公开的信息。适用于新闻、价格、时效性事实或本地知识库没有覆盖的问题。"""
+    if not settings.tavily_api_key:
+        return "联网搜索未启用：请在 .env 配置 TAVILY_API_KEY 后重启应用。"
+    try:
+        return format_web_documents(search_web_documents(query))
+    except Exception as exc:
+        return f"【联网搜索结果】\n联网搜索暂时不可用：{exc}"
+
+
+def stream_grounded_answer(question: str, source_type: str, context: str):
+    """仅使用一类给定来源生成回答，避免本地与联网证据混合。"""
+    settings.validate()
+    model = ChatOpenAI(
+        model=settings.model,
+        api_key=settings.api_key,
+        base_url=settings.base_url,
+        temperature=0,
+    )
+    prompt = (
+        f"你正在生成『{source_type}』的独立回答。\n"
+        "只能使用下方提供的资料，不能引用其他来源、不能补充未出现的事实。"
+        "若资料不足，请直接说明。请用中文简洁回答。\n\n"
+        f"用户问题：{question}\n\n"
+        f"可用资料：\n{context}"
+    )
+    return model.stream(
+        [
+            SystemMessage(content="你是严谨的资料问答助手。"),
+            HumanMessage(content=prompt),
+        ]
+    )
+
+
 SYSTEM_PROMPT = """你是一个严谨的中文知识库助手。
-对于任何可能需要本地资料支撑的问题，先调用 search_knowledge_base；必要时可以用不同关键词多次检索。
+对于本地资料相关的问题，优先调用 search_knowledge_base；必要时可使用不同关键词多次检索。
+对于新闻、价格、时效性事实、或本地资料不足的问题，调用 search_web 获取联网信息。
 只依据工具返回的资料作答，不要编造。若资料不足，请明确说明。
-回答末尾以“来源：...”列出实际使用的文件路径；引用时使用工具结果中的来源路径。
+必须严格区分来源：使用本地检索后，在回答末尾列出“本地来源：文件路径”；
+使用联网搜索后，在回答末尾列出“联网来源：网页标题 - URL”。如果两种都用到，分别列出，绝不混合标注。
 普通寒暄无需调用工具。"""
 
 
@@ -97,9 +136,12 @@ def build_agent(checkpointer=None):
         base_url=settings.base_url,
         temperature=0,
     )
+    tools = [search_knowledge_base]
+    if settings.tavily_api_key:
+        tools.append(search_web)
     return create_agent(
         model=model,
-        tools=[search_knowledge_base],
+        tools=tools,
         system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,
     )
