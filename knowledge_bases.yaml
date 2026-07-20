@@ -1,0 +1,9 @@
+# 知识库定义（Phase 1：单 KB，与现有行为完全一致）
+domains:
+  - id: default
+    name: "默认知识库"
+    description: "通用知识库，包含 data/ 目录下所有文档"
+    data_dir: data
+    persist_dir: chroma_db
+    collection_name: knowledge_base
+    default: true

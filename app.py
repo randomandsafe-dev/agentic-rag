@@ -11,7 +11,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from config import settings
 from ingest import ingest_documents
 from memory import MemoryManager
-from rag_agent import build_agent, get_hybrid_retriever, get_vector_store
+from knowledge.service import get_knowledge_service
+from rag_agent import build_agent
 
 
 st.set_page_config(page_title="Agentic RAG", page_icon="📚", layout="wide")
@@ -61,8 +62,7 @@ def load_agent():
 
 def reset_agent_caches() -> None:
     """Ensure a newly rebuilt index is used immediately."""
-    get_vector_store.cache_clear()
-    get_hybrid_retriever.cache_clear()
+    get_knowledge_service().invalidate()
     load_agent.clear()
     get_memory_manager.clear()
 

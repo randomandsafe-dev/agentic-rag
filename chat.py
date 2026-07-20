@@ -116,9 +116,8 @@ def main() -> None:
         # --- 答案验证 ---
         if settings.verify_enabled:
             try:
-                from rag_agent import get_hybrid_retriever
-                retriever = get_hybrid_retriever()
-                verify_docs = retriever.search(question)
+                from knowledge.service import get_knowledge_service
+                verify_docs = get_knowledge_service().search(question)
                 verification = verify_answer(question, answer_text, verify_docs)
                 if verification:
                     print(format_verification(verification))

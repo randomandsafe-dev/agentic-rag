@@ -52,6 +52,9 @@ class Settings:
     memory_db_path: Path = ROOT_DIR / os.getenv("MEMORY_DB_PATH", "conversations.db")
     session_window: int = int(os.getenv("SESSION_WINDOW", "20"))
 
+    # ---- 知识库配置 ----
+    kb_config_path: Path = ROOT_DIR / os.getenv("KB_CONFIG_PATH", "knowledge_bases.yaml")
+
     # ---- 检索增强配置 (新增) ----
     rewrite_enabled: bool = field(
         default_factory=lambda: _bool_env("REWRITE_ENABLED", True)

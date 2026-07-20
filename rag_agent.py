@@ -5,18 +5,26 @@ from __future__ import annotations
 from functools import lru_cache
 
 from langchain.agents import create_agent
-from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.tools import tool
 
 from config import settings
-from retrieval import HybridRetriever
+
+
+# Import is deferred to break circular dependency:
+#   knowledge.registry -> rag_agent (get_embeddings)
+#   rag_agent -> knowledge.service (get_knowledge_service)
+#   knowledge.service -> knowledge.registry
+# The import happens lazily inside search_knowledge_base().
 
 
 @lru_cache(maxsize=1)
 def get_embeddings():
-    """获取嵌入模型；默认本地模型，避免聊天接口不支持 embeddings 的问题。"""
+    """获取嵌入模型；默认本地模型，避免聊天接口不支持 embeddings 的问题。
+
+    此函数仍被 retrieval_pipeline.py 和 knowledge.registry 导入复用。
+    """
     if settings.embedding_provider == "openai":
         return OpenAIEmbeddings(
             model=settings.openai_embedding_model,
@@ -30,25 +38,6 @@ def get_embeddings():
     return FastEmbedEmbeddings(
         model_name=settings.local_embedding_model,
     )
-
-
-@lru_cache(maxsize=1)
-def get_vector_store():
-    """打开已持久化的 Chroma 向量库。"""
-    settings.validate()
-    if not settings.persist_dir.exists():
-        raise RuntimeError("尚未创建知识库。请先运行：python ingest.py")
-    return Chroma(
-        collection_name=settings.collection_name,
-        persist_directory=str(settings.persist_dir),
-        embedding_function=get_embeddings(),
-    )
-
-
-@lru_cache(maxsize=1)
-def get_hybrid_retriever():
-    """获取混合检索器（BM25 + 向量 + Reranker）。"""
-    return HybridRetriever(get_vector_store())
 
 
 def format_documents(documents: list[Document]) -> str:
@@ -68,7 +57,9 @@ def search_knowledge_base(query: str) -> str:
     """在本地知识库中检索与问题相关的材料。回答知识库相关问题前必须调用此工具。
     内部自动进行查询改写、相关性判断、最多两次重试（可通过 .env 配置）。"""
     try:
-        return format_documents(get_hybrid_retriever().search(query))
+        from knowledge.service import get_knowledge_service
+
+        return format_documents(get_knowledge_service().search(query))
     except Exception as exc:
         return (
             "知识库检索暂时不可用："
