@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from config import settings
 from ingest import ingest_documents
-from rag_agent import build_agent, get_retriever
+from rag_agent import build_agent, get_hybrid_retriever, get_vector_store
 
 
 st.set_page_config(page_title="Agentic RAG", page_icon="📚", layout="wide")
@@ -40,7 +40,8 @@ def load_agent():
 
 def reset_agent_caches() -> None:
     """Ensure a newly rebuilt index is used immediately."""
-    get_retriever.cache_clear()
+    get_vector_store.cache_clear()
+    get_hybrid_retriever.cache_clear()
     build_agent.cache_clear()
     load_agent.clear()
 

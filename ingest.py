@@ -56,18 +56,14 @@ def ingest_documents() -> tuple[int, int]:
         collection_name=settings.collection_name,
         persist_directory=str(settings.persist_dir),
     )
-<<<<<<< HEAD
+    if settings.hybrid_enabled:
+        build_bm25_index(chunks, settings.persist_dir)
     return len(documents), len(chunks)
 
 
 def main() -> None:
     document_count, chunk_count = ingest_documents()
     print(f"入库完成：{document_count} 个文档，{chunk_count} 个文本块。")
-=======
-    # 同时构建 BM25 稀疏检索索引
-    build_bm25_index(chunks, settings.persist_dir)
-    print(f"入库完成：{len(documents)} 个文档，{len(chunks)} 个文本块。")
->>>>>>> origin/feature/hybrid-retrieval-reranker-verify
 
 
 if __name__ == "__main__":
