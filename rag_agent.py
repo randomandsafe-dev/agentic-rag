@@ -83,9 +83,13 @@ SYSTEM_PROMPT = """你是一个严谨的中文知识库助手。
 普通寒暄无需调用工具。"""
 
 
-@lru_cache(maxsize=1)
-def build_agent():
-    """创建 LangChain Agent；它会自行决定何时、多次调用检索工具。"""
+def build_agent(checkpointer=None):
+    """创建 LangChain Agent；它会自行决定何时、多次调用检索工具。
+
+    Args:
+        checkpointer: 可选的 LangGraph checkpointer（如 SqliteSaver）。
+                      传入后 Agent 对话状态将自动持久化。
+    """
     settings.validate()
     model = ChatOpenAI(
         model=settings.model,
@@ -97,4 +101,5 @@ def build_agent():
         model=model,
         tools=[search_knowledge_base],
         system_prompt=SYSTEM_PROMPT,
+        checkpointer=checkpointer,
     )
