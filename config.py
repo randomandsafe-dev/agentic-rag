@@ -48,6 +48,10 @@ class Settings:
     # --- 答案验证 ---
     verify_enabled: bool = os.getenv("VERIFY_ENABLED", "true").lower() == "true"
 
+    # ---- 会话记忆 ----
+    memory_db_path: Path = ROOT_DIR / os.getenv("MEMORY_DB_PATH", "conversations.db")
+    session_window: int = int(os.getenv("SESSION_WINDOW", "20"))
+
     # ---- 检索增强配置 (新增) ----
     rewrite_enabled: bool = field(
         default_factory=lambda: _bool_env("REWRITE_ENABLED", True)
