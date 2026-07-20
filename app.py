@@ -272,15 +272,25 @@ def main() -> None:
             status = st.status("Agent 正在分析问题...", expanded=False)
             answer = ""
             try:
-                history = [
-                    HumanMessage(content=item["content"])
-                    if item["role"] == "user"
-                    else AIMessage(content=item["content"])
-                    for item in st.session_state.messages
-                ]
                 config = mm.checkpointer.get_config(sid)
+                if checkpointer is not None:
+                    # LangGraph 从 checkpointer 自动恢复历史，只传本轮新消息
+                    agent_input = {"messages": [HumanMessage(content=question)]}
+                    stream_config = config
+                else:
+                    # 降级：手动构建窗口内历史
+                    window_msgs = mm.load_history(sid)
+                    agent_input = {
+                        "messages": [
+                            HumanMessage(content=m.content)
+                            if m.role == "user"
+                            else AIMessage(content=m.content)
+                            for m in window_msgs
+                        ]
+                    }
+                    stream_config = None
                 for chunk, metadata in agent.stream(
-                    {"messages": history}, config=config, stream_mode="messages"
+                    agent_input, config=stream_config, stream_mode="messages"
                 ):
                     node = metadata.get("langgraph_node")
                     if node == "tools":

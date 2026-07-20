@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from config import ROOT_DIR, settings
+from config import settings
 from memory import MemoryManager
 from rag_agent import build_agent
 from verify import verify_answer, format_verification
@@ -18,17 +18,6 @@ def message_text(message: AIMessage) -> str:
         block.get("text", "") if isinstance(block, dict) else str(block)
         for block in message.content
     )
-
-
-def _print_sessions(mm: MemoryManager) -> None:
-    """打印会话列表。"""
-    sessions = mm.sessions.list()
-    if not sessions:
-        print("   (无现有会话)")
-        return
-    for i, s in enumerate(sessions, start=1):
-        marker = ""
-        print(f"  [{i}] {s.name}  ({s.message_count}轮)  {s.updated_at[:16]}{marker}")
 
 
 def _select_or_create_session(mm: MemoryManager) -> str:
@@ -91,14 +80,9 @@ def main() -> None:
 
         # ---- 命令处理 ----
         if raw.startswith("/"):
-            _handle_command(mm, raw)
-            # 如果切换了会话，更新 session_id
-            parts = raw.split(maxsplit=1)
-            cmd = parts[0].lower()
-            if cmd in {"/switch", "/new"}:
-                sessions = mm.sessions.list()
-                if sessions:
-                    session_id = sessions[0].id  # 最新创建的或切换到的
+            new_id = _handle_command(mm, raw)
+            if new_id is not None:
+                session_id = new_id
             continue
 
         if not raw:
@@ -110,12 +94,17 @@ def main() -> None:
         # 持久化用户消息
         mm.messages.add(session_id, "user", question)
 
-        # 加载窗口内历史
-        history = _build_history(mm, session_id)
-
         # 调用 Agent
         config = mm.checkpointer.get_config(session_id)
-        result = agent.invoke({"messages": history}, config=config)
+        if checkpointer is not None:
+            # LangGraph 从 checkpointer 自动恢复历史，只传本轮新消息避免重复
+            result = agent.invoke(
+                {"messages": [HumanMessage(content=question)]}, config=config
+            )
+        else:
+            # 降级：无 checkpointer 时手动构建窗口内历史
+            history = _build_history(mm, session_id)
+            result = agent.invoke({"messages": history})
         answer = result["messages"][-1]
         answer_text = message_text(answer)
 
@@ -149,8 +138,12 @@ def _build_history(mm: MemoryManager, session_id: str) -> list[HumanMessage | AI
     return history
 
 
-def _handle_command(mm: MemoryManager, raw: str) -> None:
-    """处理 / 命令。"""
+def _handle_command(mm: MemoryManager, raw: str) -> str | None:
+    """处理 / 命令。
+
+    Returns:
+        如果命令导致当前会话切换，返回新 session_id；否则返回 None。
+    """
     parts = raw.split(maxsplit=1)
     cmd = parts[0].lower()
     arg = parts[1].strip() if len(parts) > 1 else ""
@@ -160,9 +153,10 @@ def _handle_command(mm: MemoryManager, raw: str) -> None:
         sessions = mm.sessions.list()
         if not sessions:
             print("  (无会话)")
-            return
+            return None
         for i, s in enumerate(sessions, start=1):
             print(f"  [{i}] {s.name}  ({s.message_count}轮)  {s.updated_at[:16]}")
+        return None
 
     elif cmd == "/new":
         name = arg if arg else input("会话名称: ").strip()
@@ -170,27 +164,29 @@ def _handle_command(mm: MemoryManager, raw: str) -> None:
             name = "默认会话"
         session = mm.sessions.create(name)
         print(f"✓ 已创建并切换到「{session.name}」。")
+        return session.id
 
     elif cmd == "/switch":
         if not arg:
             print("用法: /switch <编号>")
-            return
+            return None
         sessions = mm.sessions.list()
         try:
             idx = int(arg) - 1
             if 0 <= idx < len(sessions):
                 session = sessions[idx]
-                mm.sessions.update(session.id)
                 print(f"已切换到「{session.name}」。")
+                return session.id
             else:
                 print("无效的会话编号。")
         except ValueError:
             print("请输入有效的数字编号。")
+        return None
 
     elif cmd == "/delete":
         if not arg:
             print("用法: /delete <编号>")
-            return
+            return None
         sessions = mm.sessions.list()
         try:
             idx = int(arg) - 1
@@ -206,9 +202,11 @@ def _handle_command(mm: MemoryManager, raw: str) -> None:
                 print("无效的会话编号。")
         except ValueError:
             print("请输入有效的数字编号。")
+        return None
 
     else:
         print(f"未知命令: {cmd}。可用: /new /list /switch /delete")
+        return None
 
 
 if __name__ == "__main__":
