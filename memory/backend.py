@@ -216,6 +216,15 @@ class SqliteBackend(MemoryBackend):
         finally:
             conn.close()
 
+    def delete_all_sessions(self) -> None:
+        """删除全部会话及其消息（由外键级联清理）。"""
+        conn = self._get_conn()
+        try:
+            conn.execute("DELETE FROM sessions")
+            conn.commit()
+        finally:
+            conn.close()
+
     # ------------------------------------------------------------------
     # Message CRUD
     # ------------------------------------------------------------------

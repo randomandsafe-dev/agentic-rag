@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import streamlit as st
@@ -53,9 +54,9 @@ def get_memory_manager() -> MemoryManager:
 
 
 @st.cache_resource
-def load_agent(_checkpointer=None):
-    """Keep one Agent instance across Streamlit reruns."""
-    return build_agent(checkpointer=_checkpointer)
+def load_agent():
+    """Build an Agent without LangGraph's thread-bound SQLite checkpointer."""
+    return build_agent()
 
 
 def reset_agent_caches() -> None:
@@ -64,6 +65,35 @@ def reset_agent_caches() -> None:
     get_hybrid_retriever.cache_clear()
     load_agent.clear()
     get_memory_manager.clear()
+
+
+def delete_all_conversations() -> None:
+    """删除全部会话、消息及 LangGraph checkpoint，且不依赖缓存对象。"""
+    connection = sqlite3.connect(str(settings.memory_db_path))
+    try:
+        existing_tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        # 固定的表名列表；按依赖顺序先清理子表。
+        for table_name in (
+            "checkpoint_writes",
+            "checkpoint_blobs",
+            "checkpoints",
+            "messages",
+            "facts",
+            "sessions",
+        ):
+            if table_name in existing_tables:
+                connection.execute(f"DELETE FROM {table_name}")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
 
 
 # ============================================================
@@ -141,11 +171,18 @@ def _render_session_panel(mm: MemoryManager) -> None:
     sessions = mm.sessions.list()
 
     # --- 新建会话 ---
-    new_name = st.sidebar.text_input("新建会话", placeholder="输入名称后回车", key="new_session_name")
-    if new_name:
-        session = mm.sessions.create(new_name)
+    if st.session_state.pop("clear_new_session_name", False):
+        st.session_state.new_session_name = ""
+    new_name = st.sidebar.text_input(
+        "会话名称", placeholder="例如：产品需求讨论", key="new_session_name"
+    )
+    if st.sidebar.button("＋ 新建对话", use_container_width=True, key="create_session_btn"):
+        name = new_name.strip() or "新对话"
+        session = mm.sessions.create(name)
         st.session_state.current_session_id = session.id
         _load_session_messages(mm, session.id)
+        # 下一次渲染时再清空，避免修改已创建的 Streamlit widget 状态。
+        st.session_state.clear_new_session_name = True
         st.rerun()
 
     if not sessions:
@@ -195,10 +232,34 @@ def _render_session_panel(mm: MemoryManager) -> None:
                 st.rerun()
     with col1:
         if st.button("🧹 清空对话", use_container_width=True, key="clear_session_btn"):
-            mm.messages.delete_all(st.session_state.current_session_id)
-            mm.sessions.update(st.session_state.current_session_id, updated_at="")
-            st.session_state.messages = []
-            st.rerun()
+            try:
+                mm.messages.delete_all(cur_session.id)
+                # 触发 updated_at 自动更新，避免把时间写成空字符串。
+                mm.sessions.update(cur_session.id, status=cur_session.status)
+                st.session_state.messages = []
+                st.sidebar.success("当前会话已清空。")
+            except Exception as exc:
+                st.sidebar.error(f"清空会话失败：{exc}")
+
+    # --- 危险操作：删除全部会话 ---
+    with st.sidebar.expander("危险操作"):
+        st.caption("此操作会永久删除全部会话和聊天记录，知识库资料不会受影响。")
+        confirmed = st.checkbox("我确认删除全部对话", key="confirm_delete_all_sessions")
+        if st.button(
+            "删除全部对话",
+            type="secondary",
+            use_container_width=True,
+            disabled=not confirmed,
+            key="delete_all_sessions_btn",
+        ):
+            try:
+                delete_all_conversations()
+                get_memory_manager.clear()
+                st.session_state.current_session_id = None
+                st.session_state.messages = []
+                st.sidebar.success("全部对话已删除。")
+            except Exception as exc:
+                st.sidebar.error(f"删除全部对话失败：{exc}")
 
 
 def _render_kb_panel(mm: MemoryManager) -> None:
@@ -249,12 +310,9 @@ def main() -> None:
         st.info("请在侧栏新建一个会话开始对话。")
         return
 
-    # 获取/创建 Agent
-    try:
-        checkpointer = mm.checkpointer.get()
-    except Exception:
-        checkpointer = None
-    agent = load_agent(_checkpointer=checkpointer)
+    # Web UI 使用消息表保存历史。LangGraph 的同步 SQLite checkpointer 会在
+    # 工具调用线程间共享连接，因此这里不使用它。
+    agent = load_agent()
 
     # 渲染历史消息
     for message in st.session_state.messages:
@@ -272,25 +330,19 @@ def main() -> None:
             status = st.status("Agent 正在分析问题...", expanded=False)
             answer = ""
             try:
-                config = mm.checkpointer.get_config(sid)
-                if checkpointer is not None:
-                    # LangGraph 从 checkpointer 自动恢复历史，只传本轮新消息
-                    agent_input = {"messages": [HumanMessage(content=question)]}
-                    stream_config = config
-                else:
-                    # 降级：手动构建窗口内历史
-                    window_msgs = mm.load_history(sid)
-                    agent_input = {
-                        "messages": [
-                            HumanMessage(content=m.content)
-                            if m.role == "user"
-                            else AIMessage(content=m.content)
-                            for m in window_msgs
-                        ]
-                    }
-                    stream_config = None
+                # 手动构建最近 N 条历史；MemoryManager 的每次数据库操作都会
+                # 打开当前线程连接，因此与 Streamlit 的线程模型兼容。
+                window_msgs = mm.load_history(sid)
+                agent_input = {
+                    "messages": [
+                        HumanMessage(content=m.content)
+                        if m.role == "user"
+                        else AIMessage(content=m.content)
+                        for m in window_msgs
+                    ]
+                }
                 for chunk, metadata in agent.stream(
-                    agent_input, config=stream_config, stream_mode="messages"
+                    agent_input, stream_mode="messages"
                 ):
                     node = metadata.get("langgraph_node")
                     if node == "tools":

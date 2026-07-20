@@ -38,6 +38,10 @@ class _SessionStore:
     def delete(self, session_id: str) -> None:
         self._backend.delete_session(session_id)
 
+    def delete_all(self) -> None:
+        """删除全部持久化会话。"""
+        self._backend.delete_all_sessions()
+
 
 class _MessageStore:
     """Message CRUD 子门面。"""

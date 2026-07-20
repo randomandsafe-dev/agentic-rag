@@ -96,7 +96,7 @@ class HybridRetriever:
         """执行混合检索，返回 top_k 文档。"""
         # 1) 向量检索
         vector_docs: list[Document] = self.vector_retriever.invoke(query)
-        print(vector_docs)
+       
         # 2) BM25 检索（如果可用）
         bm25_docs: list[Document] = []
         if settings.hybrid_enabled and self.bm25 is not None:
@@ -110,7 +110,7 @@ class HybridRetriever:
                 reverse=True,
             )[:k]
             bm25_docs = [self.corpus_docs[i] for i in top_indices]
-        print(bm25_docs)
+        
         # 3) RRF 融合
         fused = self._rrf_fusion(vector_docs, bm25_docs)
 

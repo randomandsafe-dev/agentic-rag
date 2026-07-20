@@ -22,16 +22,16 @@ class CheckpointerAdapter:
 
     def __init__(self, backend: SqliteBackend) -> None:
         self._backend = backend
-        self._checkpointer = None
 
     def get(self):
-        """返回 SqliteSaver 实例（供 create_agent 使用）。"""
-        if self._checkpointer is None:
-            from langgraph.checkpoint.sqlite import SqliteSaver
+        """返回当前线程专属的 SqliteSaver 实例（供 create_agent 使用）。
 
-            # 复用 backend 的 SQLite 连接
-            self._checkpointer = SqliteSaver(self._backend._get_conn())
-        return self._checkpointer
+        Streamlit 每次交互都可能在不同线程执行脚本。SQLite 连接不能跨线程
+        复用，因此不能缓存带有连接的 SqliteSaver；每次调用都创建一个新的连接。
+        """
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        return SqliteSaver(self._backend._get_conn())
 
     def get_config(self, session_id: str) -> dict:
         """返回 LangGraph 的 config dict。
