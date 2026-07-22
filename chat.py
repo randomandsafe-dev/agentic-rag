@@ -11,6 +11,7 @@ from knowledge.access import UserContext
 from memory import MemoryManager
 from rag_agent import build_agent, set_agent_user
 from verify import verify_answer, format_verification
+from web_search import search_web_documents
 
 
 def message_text(message: AIMessage) -> str:
@@ -122,7 +123,21 @@ def main(user: UserContext | None = None) -> None:
         if settings.verify_enabled:
             try:
                 from knowledge.service import get_knowledge_service
-                verify_docs = get_knowledge_service().search(question)
+
+                verify_docs = list(get_knowledge_service().search(question))
+
+                # 检测 Agent 本轮是否使用了联网搜索
+                _web_used = any(
+                    getattr(msg, "name", None) == "search_web"
+                    for msg in result.get("messages", [])
+                )
+                if _web_used and settings.tavily_api_key:
+                    try:
+                        web_docs = search_web_documents(question)
+                        verify_docs.extend(web_docs)
+                    except Exception:
+                        pass  # 联网文档获取失败不影响验证
+
                 verification = verify_answer(question, answer_text, verify_docs)
                 if verification:
                     print(format_verification(verification))
