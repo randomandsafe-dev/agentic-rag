@@ -10,6 +10,7 @@ from langchain.tools import tool
 
 from config import settings
 from embeddings import get_embeddings  # re-export，保持向后兼容
+from knowledge.access import UserContext
 from llm_factory import create_llm
 
 # Import is deferred to break circular dependency:
@@ -17,6 +18,21 @@ from llm_factory import create_llm
 #   knowledge.service -> knowledge.registry
 #   knowledge.registry -> embeddings (terminal, no back-reference)
 # The import happens lazily inside search_knowledge_base().
+
+# ------------------------------------------------------------------
+# UserContext 透传
+# ------------------------------------------------------------------
+
+_current_user: UserContext | None = None
+
+
+def set_agent_user(user: UserContext | None) -> None:
+    """设置当前请求的 UserContext，供 search_knowledge_base 工具透明使用。
+
+    UI / CLI 层在调用 Agent 之前设置此值。
+    """
+    global _current_user
+    _current_user = user
 
 
 
@@ -42,7 +58,7 @@ def search_knowledge_base(query: str) -> str:
     try:
         from knowledge.service import get_knowledge_service
 
-        return format_documents(get_knowledge_service().search(query))
+        return format_documents(get_knowledge_service().search(query, user=_current_user))
     except Exception as exc:
         return (
             "知识库检索暂时不可用："

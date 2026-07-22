@@ -10,9 +10,10 @@ from langchain_core.messages import AIMessage, HumanMessage
 
 from config import settings
 from ingest import ingest_documents
+from knowledge.access import UserContext
 from memory import MemoryManager
 from knowledge.service import get_knowledge_service
-from rag_agent import build_agent
+from rag_agent import build_agent, set_agent_user
 
 
 st.set_page_config(page_title="Agentic RAG", page_icon="📚", layout="wide")
@@ -159,6 +160,18 @@ def render_sidebar() -> None:
     st.sidebar.header("📚 知识库管理")
     st.sidebar.caption("支持 Markdown、TXT、PDF。上传后点击「写入并重建索引」。")
     _render_kb_panel(mm)
+
+    # ---- 用户身份 ----
+    st.sidebar.divider()
+    st.sidebar.header("👤 用户身份")
+    role = st.sidebar.selectbox(
+        "角色",
+        options=["viewer", "admin", "developer"],
+        index=0,
+        key="user_role_selector",
+    )
+    user_id = st.sidebar.text_input("用户 ID", value=role, key="user_id_input")
+    set_agent_user(UserContext(user_id=user_id, role=role))
 
     # ---- 信息 ----
     st.sidebar.divider()

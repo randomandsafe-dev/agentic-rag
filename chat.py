@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
+
 from langchain_core.messages import AIMessage, HumanMessage
 
 from config import settings
+from knowledge.access import UserContext
 from memory import MemoryManager
-from rag_agent import build_agent
+from rag_agent import build_agent, set_agent_user
 from verify import verify_answer, format_verification
 
 
@@ -52,7 +55,9 @@ def _select_or_create_session(mm: MemoryManager) -> str:
     return session.id
 
 
-def main() -> None:
+def main(user: UserContext | None = None) -> None:
+    set_agent_user(user)
+
     mm = MemoryManager(
         str(settings.memory_db_path),
         session_window=settings.session_window,
@@ -209,4 +214,10 @@ def _handle_command(mm: MemoryManager, raw: str) -> str | None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Agentic RAG 命令行聊天")
+    parser.add_argument("--user", type=str, default=None, help="用户 ID")
+    parser.add_argument("--role", type=str, default="viewer", help="用户角色 (admin/developer/viewer)")
+    args = parser.parse_args()
+
+    user = UserContext(user_id=args.user, role=args.role) if args.user else None
+    main(user=user)
