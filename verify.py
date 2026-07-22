@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from langchain_core.documents import Document
-from langchain_openai import ChatOpenAI
 
 from config import settings
+from llm_factory import create_llm
 
 VERIFY_SYSTEM_PROMPT = """你是一个严格的答案验证器。你的任务是检查 AI 助手给出的回答是否完全基于提供的参考资料。
 
@@ -63,12 +63,7 @@ AI 助手的回答：
 {doc_text}"""
 
     try:
-        model = ChatOpenAI(
-            model=settings.model,
-            api_key=settings.api_key,
-            base_url=settings.base_url,
-            temperature=0,
-        )
+        model = create_llm(temperature=0)
         response = model.invoke(
             [
                 {"role": "system", "content": VERIFY_SYSTEM_PROMPT},

@@ -13,7 +13,7 @@ from langchain_chroma import Chroma
 
 from config import ROOT_DIR
 from knowledge.domain import KnowledgeDomain
-from rag_agent import get_embeddings
+from embeddings import get_embeddings
 from retrieval import HybridRetriever
 
 
@@ -65,6 +65,7 @@ class KnowledgeBaseRegistry:
                 persist_dir=ROOT_DIR / entry.get("persist_dir", f"chroma_db/{entry['id']}"),
                 collection_name=entry.get("collection_name", f"kb_{entry['id']}"),
                 default=bool(entry.get("default", False)),
+                keywords=entry.get("keywords", []),
             )
             self._domains[domain.id] = domain
 
@@ -98,8 +99,7 @@ class KnowledgeBaseRegistry:
         """惰性获取 domain 对应的 HybridRetriever。
 
         首次调用时创建 Chroma + HybridRetriever 并缓存。
-        Phase 1：HybridRetriever 内部通过 settings.persist_dir 读取 BM25，
-        因此 domain.persist_dir 须与 settings.persist_dir 一致。
+        Phase 1.5：persist_dir 从 domain 显式传入，不再依赖 settings 全局。
         """
         if domain_id not in self._retrievers:
             domain = self.get_domain(domain_id)
@@ -112,12 +112,10 @@ class KnowledgeBaseRegistry:
                 persist_directory=str(domain.persist_dir),
                 embedding_function=get_embeddings(),
             )
-            self._retrievers[domain_id] = HybridRetriever(vector_store)
+            self._retrievers[domain_id] = HybridRetriever(
+                vector_store, persist_dir=domain.persist_dir
+            )
         return self._retrievers[domain_id]
-
-    def get_default_retriever(self) -> HybridRetriever:
-        """获取默认 domain 的检索器。"""
-        return self.get_retriever(self.get_default_domain().id)
 
     # ------------------------------------------------------------------
     # 缓存管理

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -20,3 +20,4 @@ class KnowledgeDomain:
     persist_dir: Path
     collection_name: str
     default: bool = False
+    keywords: list[str] = field(default_factory=list)

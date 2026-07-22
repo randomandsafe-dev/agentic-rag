@@ -2,7 +2,7 @@
 
 ## 概述
 
-`retrieval_pipeline.py` 使用 Python 标准库 `logging` 模块记录检索增强管道的运行状态。
+`search_pipeline.py` 使用 Python 标准库 `logging` 模块记录搜索增强管道的运行状态。
 
 ## 日志级别与含义
 
@@ -46,25 +46,24 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s:%(message)s")
 ```
 
-或只关注检索管道的日志：
+或只关注搜索管道的日志：
 
 ```python
-logging.getLogger("retrieval_pipeline").setLevel(logging.INFO)
+logging.getLogger("search_pipeline").setLevel(logging.INFO)
 ```
 
 ## 日志点一览
 
-`retrieval_pipeline.py` 共 5 个日志埋点：
+`search_pipeline.py` 共 5 个日志埋点：
 
 | 位置 | 级别 | 内容 |
 |------|------|------|
 | `LLMRelevanceJudge.judge()` | WARNING | LLM 调用失败 → 降级为全 2 分 |
 | `LLMRelevanceJudge` 外围 | WARNING | JSON 解析失败 → 降级为全 1 分 |
-| `VectorScoreJudge.judge()` | WARNING | 向量分数检索失败 → 降级为全 2 分 |
-| `RetrievalPipeline.retrieve()` | INFO | 每次检索尝试的改写查询 |
-| `RetrievalPipeline.retrieve()` | INFO | 每次检索尝试的相关性分数 |
-| `RetrievalPipeline.retrieve()` | INFO | 检索成功的文档数 |
-| `RetrievalPipeline.retrieve()` | WARNING | 重试耗尽后降级 |
+| `SearchPipeline.retrieve()` | INFO | 每次检索尝试的改写查询 |
+| `SearchPipeline.retrieve()` | INFO | 每次检索尝试的相关性分数 |
+| `SearchPipeline.retrieve()` | INFO | 检索成功的文档数 |
+| `SearchPipeline.retrieve()` | WARNING | 重试耗尽后降级 |
 | `QueryRewriter.rewrite()` | WARNING | 改写失败 → 使用原始查询 |
 | `QueryRewriter.rewrite_retry()` | WARNING | 重试改写失败 → 使用原始查询 |
 

@@ -1,5 +1,10 @@
 # 查询改写 + 相关性判断 + 重试机制 —— 实现方案文档
 
+> **注意**：本文档为历史设计文档（Phase 1.0）。当前架构已演进为
+> `KnowledgeService → KnowledgeRouter → KnowledgeBaseRegistry → SearchPipeline → HybridRetriever`。
+> 部分代码示例中的类名（`VectorScoreJudge`、`HybridJudge`、`get_retrieval_pipeline()`）
+> 在当前版本已删除或重命名。最新架构参见项目源码。
+
 ## 一、项目现状分析
 
 ### 1.1 当前架构
@@ -45,7 +50,7 @@ ingest.py                   # 文档入库脚本
   │
   ▼
 ┌─────────────────────────────────────────────────┐
-│           RetrievalPipeline (新模块)              │
+│           SearchPipeline (新模块)              │
 │                                                  │
 │  原始 query                                       │
 │    │                                             │
@@ -79,7 +84,7 @@ Agent 基于最终结果生成回答
 
 ```
 agenticRAG/
-├── retrieval_pipeline.py    ← 新增：查询改写 + 相关性判断 + 重试
+├── search_pipeline.py    ← 新增：查询改写 + 相关性判断 + 重试
 └── prompts.py               ← 新增：提示词模板（与逻辑分离）
 ```
 
@@ -134,7 +139,7 @@ RELEVANCE_JUDGE_PROMPT = """你是一个文档相关性判断专家。
 请只输出一个数字（0-3）表示相关性分数，不要输出任何其他内容。"""
 ```
 
-### 4.2 `retrieval_pipeline.py` —— 核心逻辑
+### 4.2 `search_pipeline.py` —— 核心逻辑
 
 采用**策略模式**设计，相关性判断策略可插拔替换：
 
@@ -202,7 +207,7 @@ class QueryRewriter:
     def rewrite(original_query: str) -> str
     def rewrite_retry(original_query: str, last_rewrite: str) -> str
 
-class RetrievalPipeline:
+class SearchPipeline:
     """
     编排完整的检索流程：
     1. 改写查询
@@ -293,7 +298,7 @@ RELEVANCE_THRESHOLD=2
 | 文件                      | 操作           | 改动量 | 说明                                |
 | ------------------------- | -------------- | ------ | ----------------------------------- |
 | `prompts.py`            | **新增** | ~40行  | 提示词模板                          |
-| `retrieval_pipeline.py` | **新增** | ~120行 | 核心逻辑                            |
+| `search_pipeline.py` | **新增** | ~120行 | 核心逻辑                            |
 | `config.py`             | 修改           | +15行  | 新增配置字段                        |
 | `rag_agent.py`          | 修改           | ~10行  | search_knowledge_base 改用 pipeline |
 | `.env.example`          | 修改           | +6行   | 新配置项说明                        |
@@ -349,7 +354,7 @@ RELEVANCE_THRESHOLD=2          # 相关性阈值 0-3（默认 2）
 ## 九、实施步骤
 
 1. **创建 `prompts.py`** — 提示词模板，与逻辑分离
-2. **创建 `retrieval_pipeline.py`** — QueryRewriter、RelevanceJudge、RetrievalPipeline
+2. **创建 `search_pipeline.py`** — QueryRewriter、RelevanceJudge、SearchPipeline
 3. **修改 `config.py`** — 新增配置字段
 4. **修改 `rag_agent.py`** — search_knowledge_base 改用 pipeline
 5. **更新 `.env.example`** — 说明新配置

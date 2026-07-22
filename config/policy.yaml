@@ -1,0 +1,21 @@
+# 知识库访问策略 (Phase 3)
+# 位置：config/policy.yaml
+
+users:
+  # ---- 管理员：全部 KB ----
+  admin:
+    role: admin
+    allowed_kbs:
+      - "*"
+
+  # ---- 开发者：仅技术文档 ----
+  developer:
+    role: developer
+    allowed_kbs:
+      - tech_docs
+
+# ---- 默认规则（未在 users 中列出的用户） ----
+default:
+  role: viewer
+  allowed_kbs:
+    - default

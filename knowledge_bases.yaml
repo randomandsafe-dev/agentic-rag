@@ -7,3 +7,4 @@ domains:
     persist_dir: chroma_db
     collection_name: knowledge_base
     default: true
+    keywords: []
