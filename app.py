@@ -6,17 +6,33 @@ import sqlite3
 from pathlib import Path
 
 import streamlit as st
-from langchain_core.messages import AIMessage, HumanMessage
-
 from config import settings
 from ingest import ingest_documents
 from knowledge.access import UserContext
-from memory import MemoryManager
 from knowledge.service import get_knowledge_service
-from rag_agent import build_agent, set_agent_user
+from memory import MemoryManager
+from rag_agent import (
+    _current_user,
+    format_documents,
+    get_hybrid_retriever,
+    get_vector_store,
+    search_web,
+    set_agent_user,
+    stream_grounded_answer,
+)
+from search_router import route_question
+from verify import verify_answer
+from web_search import format_web_documents, search_web_documents
 
 
 st.set_page_config(page_title="Agentic RAG", page_icon="📚", layout="wide")
+
+ROUTE_LABELS = {
+    "auto": "自动路由（推荐）",
+    "local_only": "仅本地知识库",
+    "web_only": "仅联网搜索",
+    "both": "本地 + 联网",
+}
 
 
 # ============================================================
@@ -38,7 +54,46 @@ def content_to_text(content: object) -> str:
 
 def source_lines(answer: str) -> list[str]:
     """Extract the source line requested by the agent's system prompt."""
-    return [line for line in answer.splitlines() if line.strip().startswith("来源：")]
+    prefixes = ("来源：", "本地来源：", "联网来源：")
+    return [line for line in answer.splitlines() if line.strip().startswith(prefixes)]
+
+
+def append_retrieval_sources(
+    answer: str, tool_results: list[tuple[str, str]]
+) -> str:
+    """Append source sections based on tool outputs, not model formatting choices."""
+    local_sources: list[str] = []
+    web_sources: list[str] = []
+    for tool_name, content in tool_results:
+        lines = [line for line in content.splitlines() if line.strip()]
+        if tool_name == "search_knowledge_base":
+            local_sources.extend(line for line in lines if line.startswith("[来源 "))
+        elif tool_name == "search_web":
+            web_sources.extend(line for line in lines if line.startswith("[联网来源 "))
+
+    sections = []
+    if local_sources:
+        sections.append("**本地知识库结果**\n\n" + "\n".join(dict.fromkeys(local_sources)))
+    if web_sources:
+        sections.append("**联网搜索结果**\n\n" + "\n".join(dict.fromkeys(web_sources)))
+    return answer if not sections else answer.rstrip() + "\n\n---\n\n" + "\n\n".join(sections)
+
+
+def render_verification_report(result: dict | None) -> None:
+    """Render a compact, source-specific factuality report."""
+    if result is None:
+        return
+    score = result.get("reliability", 0)
+    factual = result.get("factual_accurate", False)
+    hallucination = result.get("has_hallucination", False)
+    with st.expander(f"答案验证报告：可信度 {score}/5", expanded=False):
+        st.markdown(
+            f"- 事实与资料一致：{'是' if factual else '否'}\n"
+            f"- 检测到潜在幻觉：{'是' if hallucination else '否'}\n"
+            f"- 信息可能遗漏：{'是' if result.get('missing_info', False) else '否'}"
+        )
+        if result.get("details"):
+            st.caption(result["details"])
 
 
 # ============================================================
@@ -55,16 +110,11 @@ def get_memory_manager() -> MemoryManager:
     )
 
 
-@st.cache_resource
-def load_agent():
-    """Build an Agent without LangGraph's thread-bound SQLite checkpointer."""
-    return build_agent()
-
-
 def reset_agent_caches() -> None:
     """Ensure a newly rebuilt index is used immediately."""
+    get_vector_store.cache_clear()
+    get_hybrid_retriever.cache_clear()
     get_knowledge_service().invalidate()
-    load_agent.clear()
     get_memory_manager.clear()
 
 
@@ -182,8 +232,10 @@ def render_sidebar() -> None:
     st.sidebar.divider()
     st.sidebar.caption(f"单次检索最多返回 {settings.top_k} 个文本块")
     st.sidebar.caption(f"嵌入模式：{settings.embedding_provider}")
-
-
+    if settings.tavily_api_key:
+        st.sidebar.success("联网搜索：已启用")
+    else:
+        st.sidebar.info("联网搜索：未启用（配置 TAVILY_API_KEY 后可用）")
 def _render_session_panel(mm: MemoryManager) -> None:
     """渲染侧栏中的会话管理区域。"""
     sessions = mm.sessions.list()
@@ -340,6 +392,24 @@ def main() -> None:
     st.title("📚 Agentic RAG 知识库问答")
     st.caption("DeepSeek 负责推理与工具调用，本地向量模型负责检索。")
 
+    route_keys = list(ROUTE_LABELS)
+    default_route = (
+        settings.web_route_mode
+        if settings.web_route_mode in ROUTE_LABELS
+        else "auto"
+    )
+    route_col, route_help_col = st.columns([1, 2])
+    with route_col:
+        st.selectbox(
+            "搜索路由",
+            options=route_keys,
+            index=route_keys.index(default_route),
+            format_func=lambda key: ROUTE_LABELS[key],
+            key="web_route_mode",
+        )
+    with route_help_col:
+        st.caption("自动模式默认优先保护内部资料；仅在问题需要实时公开信息时联网。")
+
     mm = get_memory_manager()
     _init_session_state(mm)
 
@@ -350,10 +420,6 @@ def main() -> None:
     if sid is None:
         st.info("请在侧栏新建一个会话开始对话。")
         return
-
-    # Web UI 使用消息表保存历史。LangGraph 的同步 SQLite checkpointer 会在
-    # 工具调用线程间共享连接，因此这里不使用它。
-    agent = load_agent()
 
     # 渲染历史消息
     for message in st.session_state.messages:
@@ -366,46 +432,69 @@ def main() -> None:
         mm.messages.add(sid, "user", question)
         render_message("user", question)
 
-        with st.chat_message("assistant"):
-            placeholder = st.empty()
-            status = st.status("Agent 正在分析问题...", expanded=False)
-            answer = ""
-            try:
-                # 手动构建最近 N 条历史；MemoryManager 的每次数据库操作都会
-                # 打开当前线程连接，因此与 Streamlit 的线程模型兼容。
-                window_msgs = mm.load_history(sid)
-                agent_input = {
-                    "messages": [
-                        HumanMessage(content=m.content)
-                        if m.role == "user"
-                        else AIMessage(content=m.content)
-                        for m in window_msgs
-                    ]
-                }
-                for chunk, metadata in agent.stream(
-                    agent_input, stream_mode="messages"
-                ):
-                    node = metadata.get("langgraph_node")
-                    if node == "tools":
-                        status.update(label="正在检索知识库...", state="running")
-                        continue
-                    text = content_to_text(chunk.content)
-                    if text:
-                        answer += text
-                        placeholder.markdown(answer + "▌")
-                placeholder.markdown(answer)
-                status.update(label="回答完成", state="complete", expanded=False)
-            except Exception as exc:
-                answer = f"抱歉，处理请求时发生错误：{exc}"
-                placeholder.error(answer)
-                status.update(label="处理失败", state="error", expanded=True)
+        decision = route_question(
+            question,
+            requested_mode=st.session_state.web_route_mode,
+            web_available=bool(settings.tavily_api_key),
+        )
+        st.caption(f"本次路由：**{decision.label}**。{decision.reason}")
+        source_contexts: list[tuple[str, str, str, list]] = []
 
-            for source in source_lines(answer):
-                st.caption(source)
+        if decision.use_local:
+            with st.status("正在检索本地知识库...", expanded=False) as status:
+                try:
+                    # 通过 KnowledgeService 检索，保留多 KB 路由和权限过滤
+                    local_documents = get_knowledge_service().search(
+                        question, user=_current_user
+                    )
+                    local_context = format_documents(local_documents)
+                    status.update(label="本地资料检索完成", state="complete")
+                except Exception as exc:
+                    local_documents = []
+                    local_context = f"【本地知识库结果】\n本地检索失败：{exc}"
+                    status.update(label="本地资料检索失败", state="error")
+            source_contexts.append(
+                ("本地知识库回答", "本地知识库", local_context, local_documents)
+            )
 
-        # 持久化助手消息
-        st.session_state.messages.append({"role": "assistant", "content": answer})
-        mm.messages.add(sid, "assistant", answer)
+        if decision.use_web:
+            with st.status("正在联网搜索...", expanded=False) as status:
+                try:
+                    web_documents = search_web_documents(question)
+                    web_context = format_web_documents(web_documents)
+                    status.update(label="联网搜索、可信度评分与重排序完成", state="complete")
+                except Exception as exc:
+                    web_documents = []
+                    web_context = f"【联网搜索结果】\n联网搜索失败：{exc}"
+                    status.update(label="联网搜索失败", state="error")
+            source_contexts.append(("联网搜索回答", "联网搜索", web_context, web_documents))
+
+        answers: list[tuple[str, str, str]] = []
+        for title, source_type, context, documents in source_contexts:
+            with st.chat_message("assistant"):
+                st.markdown(f"### {title}")
+                placeholder = st.empty()
+                answer = ""
+                try:
+                    for chunk in stream_grounded_answer(question, source_type, context):
+                        text = content_to_text(chunk.content)
+                        if text:
+                            answer += text
+                            placeholder.markdown(answer + "▌")
+                    placeholder.markdown(answer)
+                except Exception as exc:
+                    answer = f"抱歉，生成{title}时发生错误：{exc}"
+                    placeholder.error(answer)
+                render_verification_report(verify_answer(question, answer, documents))
+                st.divider()
+                st.markdown(context)
+            answers.append((title, answer, context))
+
+        combined_answer = "\n\n".join(
+            f"## {title}\n\n{answer}\n\n{context}" for title, answer, context in answers
+        )
+        st.session_state.messages.append({"role": "assistant", "content": combined_answer})
+        mm.messages.add(sid, "assistant", combined_answer)
 
 
 if __name__ == "__main__":

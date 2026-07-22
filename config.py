@@ -39,6 +39,9 @@ class Settings:
     api_key: str | None = os.getenv("OPENAI_API_KEY")
     base_url: str | None = os.getenv("OPENAI_BASE_URL")
     top_k: int = int(os.getenv("RAG_TOP_K", "4"))
+    tavily_api_key: str | None = os.getenv("TAVILY_API_KEY") or None
+    web_search_max_results: int = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+    web_route_mode: str = os.getenv("WEB_ROUTE_MODE", "auto").lower()
     # --- 混合检索 ---
     hybrid_enabled: bool = os.getenv("HYBRID_ENABLED", "true").lower() == "true"
     # --- Reranker ---
@@ -83,6 +86,10 @@ class Settings:
         if self.relevance_strategy not in {"llm"}:
             raise RuntimeError(
                 "RELEVANCE_STRATEGY 当前仅支持 llm。"
+            )
+        if self.web_route_mode not in {"auto", "local_only", "web_only", "both"}:
+            raise RuntimeError(
+                "WEB_ROUTE_MODE 只能是 auto、local_only、web_only 或 both。"
             )
 
 
