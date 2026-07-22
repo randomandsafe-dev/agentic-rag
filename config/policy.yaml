@@ -1,21 +1,58 @@
-# 知识库访问策略 (Phase 3)
-# 位置：config/policy.yaml
+# 知识库访问策略 (Phase 3 — Permission Layer)
+# 优先级: user_id 匹配 → role 匹配 → default
+# deny 优先于 allow
 
 users:
-  # ---- 管理员：全部 KB ----
+  # 管理员：全部 KB
   admin:
     role: admin
     allowed_kbs:
       - "*"
 
-  # ---- 开发者：仅技术文档 ----
+  # 开发者：除 HR 外全部可访问
   developer:
     role: developer
     allowed_kbs:
-      - tech_docs
+      - "*"
+    denied_kbs:
+      - hr_docs
+      - finance
 
-# ---- 默认规则（未在 users 中列出的用户） ----
+  # 访客：仅公开 KB
+  guest:
+    role: viewer
+    allowed_kbs:
+      - default
+
+# 角色策略（用户未在 users 中时，按 UserContext.role 匹配）
+roles:
+  admin:
+    allowed_kbs:
+      - "*"
+    allowed_levels:
+      - public
+      - internal
+      - restricted
+
+  developer:
+    allowed_kbs:
+      - tech_docs
+      - api_docs
+      - product_docs
+    allowed_levels:
+      - public
+      - internal
+
+  viewer:
+    allowed_kbs:
+      - default
+    allowed_levels:
+      - public
+
+# 默认策略（user 不在 users 中 + role 不在 roles 中）
 default:
-  role: viewer
   allowed_kbs:
     - default
+  denied_kbs: []
+  allowed_levels:
+    - public

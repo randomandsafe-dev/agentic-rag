@@ -69,6 +69,7 @@ def load_domains(
             enabled=bool(entry.get("enabled", True)),
             keywords=entry.get("keywords", []),
             metadata=entry.get("metadata", {}),
+            access_level=entry.get("access_level", "public"),
         )
         domains[domain.id] = domain
 
