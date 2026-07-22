@@ -12,6 +12,7 @@ from langchain_core.documents import Document
 
 from config import settings
 import os
+import time
 from pathlib import Path
 
 import yaml
@@ -20,6 +21,7 @@ from config import ROOT_DIR
 from knowledge.access import AccessGuard, UserContext
 from knowledge.concurrent import ConcurrentRetriever
 from knowledge.concurrent_pipeline import ConcurrentPipeline
+from knowledge.metrics import MetricsCollector, NoopMetricsCollector, RetrievalMetrics
 from knowledge.registry import KnowledgeBaseRegistry
 from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter, RoutingDecision
 from llm_factory import create_llm
@@ -43,6 +45,7 @@ class KnowledgeService:
         self._access_guard = AccessGuard()
         self._concurrent = ConcurrentRetriever()
         self._concurrent_pipeline = ConcurrentPipeline()
+        self._metrics = _build_metrics_collector()
 
         # Phase 6: self-correction loop
         from agent.verifier import RetrievalVerifier
@@ -81,22 +84,44 @@ class KnowledgeService:
 
         调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever → Verifier。
         """
-        domains = self._registry.list_domains()
-
-        if user is not None:
-            domains = self._access_guard.filter_domains(user, domains)
-
-        decision = self._router.route(query, domains)
-
-        # 初次检索
-        docs = self._retrieve_docs(query, decision)
-
-        # Phase 6: 自纠正闭环
-        docs, _ = self._self_correction.run(
-            query, docs,
-            retriever_fn=lambda q: self._retrieve_docs(q, decision),
+        import uuid
+        started = time.time()
+        m = RetrievalMetrics(
+            request_id=uuid.uuid4().hex[:12],
+            query=query[:100],
+            user_id=user.user_id if user else None,
         )
-        return docs
+
+        try:
+            domains = self._registry.list_domains()
+
+            if user is not None:
+                domains = self._access_guard.filter_domains(user, domains)
+
+            decision = self._router.route(query, domains)
+            m.domain_ids = decision.domain_ids
+
+            # 初次检索
+            docs = self._retrieve_docs(query, decision)
+
+            # Phase 6: 自纠正闭环
+            docs, vresult = self._self_correction.run(
+                query, docs,
+                retriever_fn=lambda q: self._retrieve_docs(q, decision),
+            )
+
+            m.retrieval_count = len(docs)
+            if vresult is not None:
+                m.verification_score = vresult.score
+                m.verification_passed = vresult.passed
+
+            return docs
+        except Exception as exc:
+            m.error = str(exc)
+            raise
+        finally:
+            m.latency_ms = (time.time() - started) * 1000
+            self._metrics.record(m)
 
     # ------------------------------------------------------------------
     # 内部
@@ -156,6 +181,20 @@ class KnowledgeService:
 # ------------------------------------------------------------------
 # 配置加载
 # ------------------------------------------------------------------
+
+
+def _build_metrics_collector() -> MetricsCollector:
+    """根据 config/metrics.yaml 构建指标收集器。"""
+    config_path = ROOT_DIR / "config" / "metrics.yaml"
+    try:
+        if config_path.exists():
+            with open(config_path, "r", encoding="utf-8") as fh:
+                config = yaml.safe_load(fh) or {}
+            if config.get("metrics", {}).get("enabled", False):
+                return MetricsCollector()
+    except Exception:
+        pass
+    return NoopMetricsCollector()
 
 
 def _load_verification_config() -> dict:
