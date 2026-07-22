@@ -11,13 +11,9 @@ from functools import lru_cache
 from langchain_core.documents import Document
 
 from config import settings
-import os
 import time
-from pathlib import Path
 
-import yaml
-
-from config import ROOT_DIR
+from runtime_loader import load_runtime_config
 from knowledge.access import AccessGuard, UserContext
 from knowledge.concurrent import ConcurrentRetriever
 from knowledge.concurrent_pipeline import ConcurrentPipeline
@@ -45,17 +41,21 @@ class KnowledgeService:
         self._access_guard = AccessGuard()
         self._concurrent = ConcurrentRetriever()
         self._concurrent_pipeline = ConcurrentPipeline()
-        self._metrics = _build_metrics_collector()
+
+        # Phase 6: runtime config
+        rt = load_runtime_config()
+        self._metrics = (
+            MetricsCollector() if rt.metrics.enabled else NoopMetricsCollector()
+        )
 
         # Phase 6: self-correction loop
         from agent.verifier import RetrievalVerifier
         from agent.self_correction.controller import SelfCorrectionController
-        vconfig = _load_verification_config()
         self._self_correction = SelfCorrectionController(
             RetrievalVerifier(self._llm),
-            enabled=vconfig.get("enabled", False),
-            max_iterations=vconfig.get("max_retry", 2) + 1,  # +1 for initial verify
-            min_score=vconfig.get("min_score", 0.5),
+            enabled=rt.self_correction.enabled,
+            max_iterations=rt.self_correction.max_iterations,
+            min_score=rt.verification.min_score,
         )
 
     def _build_router(self) -> KnowledgeRouter:
@@ -181,33 +181,6 @@ class KnowledgeService:
 # ------------------------------------------------------------------
 # 配置加载
 # ------------------------------------------------------------------
-
-
-def _build_metrics_collector() -> MetricsCollector:
-    """根据 config/metrics.yaml 构建指标收集器。"""
-    config_path = ROOT_DIR / "config" / "metrics.yaml"
-    try:
-        if config_path.exists():
-            with open(config_path, "r", encoding="utf-8") as fh:
-                config = yaml.safe_load(fh) or {}
-            if config.get("metrics", {}).get("enabled", False):
-                return MetricsCollector()
-    except Exception:
-        pass
-    return NoopMetricsCollector()
-
-
-def _load_verification_config() -> dict:
-    """加载 config/verification.yaml。文件不存在时返回默认值。"""
-    config_path = ROOT_DIR / "config" / "verification.yaml"
-    if not config_path.exists():
-        return {"enabled": False, "max_retry": 2, "min_score": 0.5}
-    try:
-        with open(config_path, "r", encoding="utf-8") as fh:
-            config = yaml.safe_load(fh) or {}
-        return config.get("verification", {})
-    except Exception:
-        return {"enabled": False, "max_retry": 2, "min_score": 0.5}
 
 
 # ------------------------------------------------------------------

@@ -1,0 +1,15 @@
+# 运行时配置 (Phase 6)
+# 优先级: runtime.yaml > 单独配置文件 > 默认值
+
+verification:
+  enabled: false
+  max_retry: 2
+  min_score: 0.5
+
+self_correction:
+  enabled: false
+  max_iterations: 3
+
+metrics:
+  enabled: false
+  query_length_limit: 100
