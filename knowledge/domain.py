@@ -20,4 +20,5 @@ class KnowledgeDomain:
     persist_dir: Path
     collection_name: str
     default: bool = False
+    enabled: bool = True
     keywords: list[str] = field(default_factory=list)

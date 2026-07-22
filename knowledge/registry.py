@@ -38,33 +38,48 @@ class KnowledgeBaseRegistry:
     # ------------------------------------------------------------------
 
     def _load(self) -> None:
-        """加载 domain 定义；YAML 不存在时从 settings 构造默认 domain。"""
+        """加载 domain 定义；YAML 不存在时回退到旧路径或 settings。"""
+        # 回退：新路径不存在时尝试旧路径
         if not self._config_path.exists():
-            from config import settings
+            legacy = ROOT_DIR / "knowledge_bases.yaml"
+            if legacy.exists():
+                self._config_path = legacy
+            else:
+                from config import settings
 
-            self._domains["default"] = KnowledgeDomain(
-                id="default",
-                name="默认知识库",
-                description="通用知识库",
-                data_dir=settings.data_dir,
-                persist_dir=settings.persist_dir,
-                collection_name=settings.collection_name,
-                default=True,
-            )
-            return
+                self._domains["default"] = KnowledgeDomain(
+                    id="default",
+                    name="默认知识库",
+                    description="通用知识库",
+                    data_dir=settings.data_dir,
+                    persist_dir=settings.persist_dir,
+                    collection_name=settings.collection_name,
+                    default=True,
+                    enabled=True,
+                )
+                return
 
         with open(self._config_path, "r", encoding="utf-8") as fh:
-            config = yaml.safe_load(fh)
+            config = yaml.safe_load(fh) or {}
 
-        for entry in config.get("domains", []):
+        # 支持两种 key：knowledge_bases（新）或 domains（旧）
+        entries = config.get("knowledge_bases") or config.get("domains") or []
+
+        for entry in entries:
             domain = KnowledgeDomain(
                 id=entry["id"],
                 name=entry.get("name", entry["id"]),
                 description=entry.get("description", ""),
-                data_dir=ROOT_DIR / entry["data_dir"],
-                persist_dir=ROOT_DIR / entry.get("persist_dir", f"chroma_db/{entry['id']}"),
-                collection_name=entry.get("collection_name", f"kb_{entry['id']}"),
+                data_dir=ROOT_DIR / entry.get("data_dir", f"data/{entry['id']}"),
+                persist_dir=ROOT_DIR / entry.get(
+                    "persist_dir", f"chroma_db/{entry['id']}"
+                ),
+                collection_name=entry.get(
+                    "collection_name",
+                    entry.get("collection", f"kb_{entry['id']}"),
+                ),
                 default=bool(entry.get("default", False)),
+                enabled=bool(entry.get("enabled", True)),
                 keywords=entry.get("keywords", []),
             )
             self._domains[domain.id] = domain
@@ -88,7 +103,11 @@ class KnowledgeBaseRegistry:
         return next(iter(self._domains.values()))
 
     def list_domains(self) -> list[KnowledgeDomain]:
-        """列出全部已注册 domain。"""
+        """列出全部已启用 domain。"""
+        return [d for d in self._domains.values() if d.enabled]
+
+    def list_all_domains(self) -> list[KnowledgeDomain]:
+        """列出全部 domain（含 disabled）。"""
         return list(self._domains.values())
 
     # ------------------------------------------------------------------

@@ -1,0 +1,31 @@
+# 知识库定义 (Phase 4 — Multi-KB Infrastructure)
+knowledge_bases:
+  - id: default
+    name: "默认知识库"
+    description: "通用知识库，包含 data/ 目录下所有文档"
+    data_dir: data
+    persist_dir: chroma_db
+    collection: knowledge_base
+    default: true
+    enabled: true
+    keywords: []
+
+  - id: tech_docs
+    name: "技术文档"
+    description: "API、架构、部署相关技术文档"
+    data_dir: data/tech_docs
+    persist_dir: chroma_db/tech_docs
+    collection: kb_tech_docs
+    default: false
+    enabled: false
+    keywords: [python, api, deploy, architecture]
+
+  - id: product_docs
+    name: "产品文档"
+    description: "PRD、需求文档、用户故事"
+    data_dir: data/product_docs
+    persist_dir: chroma_db/product_docs
+    collection: kb_product_docs
+    default: false
+    enabled: false
+    keywords: [prd, 需求, 用户故事, roadmap]

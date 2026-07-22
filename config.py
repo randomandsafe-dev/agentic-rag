@@ -54,7 +54,7 @@ class Settings:
 
     # ---- 知识库路由 ----
     router_strategy: str = os.getenv("ROUTER_STRATEGY", "llm").lower()
-    kb_config_path: Path = ROOT_DIR / os.getenv("KB_CONFIG_PATH", "knowledge_bases.yaml")
+    kb_config_path: Path = ROOT_DIR / os.getenv("KB_CONFIG_PATH", "config/knowledge_bases.yaml")
 
     # ---- 检索增强配置 ----
     rewrite_enabled: bool = field(
