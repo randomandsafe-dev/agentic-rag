@@ -1,6 +1,6 @@
 # Phase 3 — Permission Layer Design
 
-> **Status**: Draft — awaiting review before implementation.
+> **Status**: Implemented — `feature/multi-kb-search-pipeline`
 > **Target**: Multi-user, multi-KB access control without OAuth/JWT/database.
 > **Principle**: Pure Python + YAML policy. Zero new dependencies.
 
