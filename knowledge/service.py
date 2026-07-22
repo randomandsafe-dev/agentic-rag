@@ -11,10 +11,16 @@ from functools import lru_cache
 from langchain_core.documents import Document
 
 from config import settings
+import os
+from pathlib import Path
+
+import yaml
+
+from config import ROOT_DIR
 from knowledge.access import AccessGuard, UserContext
 from knowledge.concurrent import ConcurrentRetriever
 from knowledge.registry import KnowledgeBaseRegistry
-from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter
+from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter, RoutingDecision
 from llm_factory import create_llm
 from search_pipeline import SearchPipeline, QueryRewriter, LLMRelevanceJudge
 
@@ -35,6 +41,17 @@ class KnowledgeService:
         )
         self._access_guard = AccessGuard()
         self._concurrent = ConcurrentRetriever()
+
+        # Phase 6: verification controller
+        from agent.verifier import RetrievalVerifier
+        from agent.verification.controller import VerificationController
+        vconfig = _load_verification_config()
+        self._verification = VerificationController(
+            RetrievalVerifier(self._llm),
+            enabled=vconfig.get("enabled", False),
+            max_retry=vconfig.get("max_retry", 2),
+            min_score=vconfig.get("min_score", 0.5),
+        )
 
     def _build_router(self) -> KnowledgeRouter:
         """根据 settings.router_strategy 构造路由策略与 KnowledgeRouter。"""
@@ -60,8 +77,7 @@ class KnowledgeService:
             query: 用户查询。
             user: 可选的用户上下文；None 时跳过权限过滤。
 
-        调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever。
-        多 domain 时自动使用并发检索。
+        调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever → Verifier。
         """
         domains = self._registry.list_domains()
 
@@ -70,18 +86,33 @@ class KnowledgeService:
 
         decision = self._router.route(query, domains)
 
-        # 并发多 KB 检索
+        # 初次检索
+        docs = self._retrieve_docs(query, decision)
+
+        # Phase 6: 检索验证 + 按需重试
+        docs, _ = self._verification.verify_and_retry(
+            query, docs,
+            retriever_fn=lambda q: self._retrieve_docs(q, decision),
+        )
+        return docs
+
+    # ------------------------------------------------------------------
+    # 内部
+    # ------------------------------------------------------------------
+
+    def _retrieve_docs(
+        self,
+        query: str,
+        decision: RoutingDecision,
+    ) -> list[Document]:
+        """根据路由决策执行检索。"""
         if len(decision.domain_ids) > 1:
             retrievers = {
                 did: self._registry.get_retriever(did)
                 for did in decision.domain_ids
             }
-            docs = self._concurrent.search(query, retrievers)
-            # 单文档也走 pipeline 的 reranker 逻辑？
-            # 并发结果已去重，直接返回
-            return docs
+            return self._concurrent.search(query, retrievers)
 
-        # 单 KB 路径（现有行为，完全不变）
         retriever = self._registry.get_retriever(decision.domain_id)
         return self._pipeline.retrieve(query, retriever)
 
@@ -116,6 +147,24 @@ class KnowledgeService:
     def invalidate(self) -> None:
         """清空内部缓存（重建索引后调用）。"""
         self._registry.invalidate()
+
+
+# ------------------------------------------------------------------
+# 配置加载
+# ------------------------------------------------------------------
+
+
+def _load_verification_config() -> dict:
+    """加载 config/verification.yaml。文件不存在时返回默认值。"""
+    config_path = ROOT_DIR / "config" / "verification.yaml"
+    if not config_path.exists():
+        return {"enabled": False, "max_retry": 2, "min_score": 0.5}
+    try:
+        with open(config_path, "r", encoding="utf-8") as fh:
+            config = yaml.safe_load(fh) or {}
+        return config.get("verification", {})
+    except Exception:
+        return {"enabled": False, "max_retry": 2, "min_score": 0.5}
 
 
 # ------------------------------------------------------------------
