@@ -1,7 +1,7 @@
 """KnowledgeService —— Agent 层的统一检索入口。
 
 Agent 只通过此类访问知识库，不直接感知 Collection / Retriever / Router 等底层细节。
-Phase 2.5：接入 SearchPipeline，形成统一的搜索编排链路。
+Phase 3：接入 AccessGuard 实现权限过滤。
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ from functools import lru_cache
 from langchain_core.documents import Document
 
 from config import settings
+from knowledge.access import AccessGuard, UserContext
 from knowledge.registry import KnowledgeBaseRegistry
 from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter
 from llm_factory import create_llm
@@ -20,8 +21,7 @@ from search_pipeline import SearchPipeline, QueryRewriter, LLMRelevanceJudge
 class KnowledgeService:
     """知识库检索的统一门面。
 
-    Phase 2.5：Router → Registry → SearchPipeline → Retriever 完整链路。
-    Phase 3：接入 AccessGuard 实现权限过滤。
+    调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever。
     """
 
     def __init__(self) -> None:
@@ -32,6 +32,7 @@ class KnowledgeService:
             rewriter=QueryRewriter(self._llm),
             judge=LLMRelevanceJudge(self._llm),
         )
+        self._access_guard = AccessGuard()
 
     def _build_router(self) -> KnowledgeRouter:
         """根据 settings.router_strategy 构造路由策略与 KnowledgeRouter。"""
@@ -46,13 +47,24 @@ class KnowledgeService:
     # 检索
     # ------------------------------------------------------------------
 
-    def search(self, query: str) -> list[Document]:
+    def search(
+        self,
+        query: str,
+        user: UserContext | None = None,
+    ) -> list[Document]:
         """检索与查询最相关的文档。
 
-        调用链：Router → Registry → SearchPipeline → Retriever。
+        Args:
+            query: 用户查询。
+            user: 可选的用户上下文；None 时跳过权限过滤。
+
+        调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever。
         """
         domains = self._registry.list_domains()
-        # Phase 3: domains = self._access_guard.filter(domains, user)
+
+        if user is not None:
+            domains = self._access_guard.filter_domains(user, domains)
+
         decision = self._router.route(query, domains)
         retriever = self._registry.get_retriever(decision.domain_id)
         return self._pipeline.retrieve(query, retriever)
@@ -61,8 +73,20 @@ class KnowledgeService:
     # 元数据
     # ------------------------------------------------------------------
 
-    def list_domains(self) -> list[dict[str, object]]:
-        """列出所有可用知识库的摘要信息（供 Agent 或 UI 展示）。"""
+    def list_domains(
+        self,
+        user: UserContext | None = None,
+    ) -> list[dict[str, object]]:
+        """列出可用知识库的摘要信息。
+
+        Args:
+            user: 可选的用户上下文；None 时返回全部 domain。
+        """
+        domains = self._registry.list_domains()
+
+        if user is not None:
+            domains = self._access_guard.filter_domains(user, domains)
+
         return [
             {
                 "id": d.id,
@@ -70,7 +94,7 @@ class KnowledgeService:
                 "description": d.description,
                 "default": d.default,
             }
-            for d in self._registry.list_domains()
+            for d in domains
         ]
 
     def invalidate(self) -> None:
