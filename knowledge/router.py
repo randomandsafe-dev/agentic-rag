@@ -6,7 +6,7 @@ Phase 2：只负责 query → domain_id 映射，不直接访问 Chroma / Retrie
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from prompts import ROUTER_PROMPT_TEMPLATE
 
@@ -23,12 +23,14 @@ class RoutingDecision:
     """Router 的路由结果。
 
     Attributes:
-        domain_id: 目标知识库 ID。
+        domain_id: 主目标知识库 ID（向后兼容）。
+        domain_ids: 所有候选 domain ID（Phase 5 并发检索）。
         confidence: 路由置信度 0.0 ~ 1.0。
         strategy: 使用的路由策略标识（keyword / llm / single / fallback）。
     """
 
     domain_id: str = ""
+    domain_ids: list[str] = field(default_factory=list)
     confidence: float = 0.0
     strategy: str = "fallback"
 
@@ -212,6 +214,7 @@ class KnowledgeRouter:
         if not domains:
             return RoutingDecision(
                 domain_id="",
+                domain_ids=[],
                 confidence=0.0,
                 strategy="fallback",
             )
@@ -220,6 +223,7 @@ class KnowledgeRouter:
         if len(domains) == 1:
             return RoutingDecision(
                 domain_id=domains[0].id,
+                domain_ids=[domains[0].id],
                 confidence=1.0,
                 strategy="single",
             )
@@ -232,10 +236,14 @@ class KnowledgeRouter:
             default = _find_default(domains)
             return RoutingDecision(
                 domain_id=default.id,
+                domain_ids=[default.id],
                 confidence=0.0,
                 strategy="fallback",
             )
 
+        # 保证 domain_ids 至少包含 domain_id
+        if not decision.domain_ids:
+            decision.domain_ids = [decision.domain_id]
         return decision
 
 

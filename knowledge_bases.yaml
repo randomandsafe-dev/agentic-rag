@@ -1,4 +1,4 @@
-# 知识库定义（Phase 1：单 KB，与现有行为完全一致）
+# 知识库定义（向后兼容 — 新配置请使用 config/knowledge_bases.yaml）
 domains:
   - id: default
     name: "默认知识库"
@@ -7,4 +7,5 @@ domains:
     persist_dir: chroma_db
     collection_name: knowledge_base
     default: true
+    enabled: true
     keywords: []

@@ -188,6 +188,27 @@ embeddings.py          — Embedding 模型工厂
 memory/                — 会话持久化 (SQLite)
 ```
 
+## Production Configuration (Phase 6)
+
+统一运行时配置入口为 `config/runtime.yaml`：
+
+```yaml
+verification:
+  enabled: false       # 检索后验证
+  max_retry: 2
+  min_score: 0.5
+
+self_correction:
+  enabled: false       # 自纠正闭环
+  max_iterations: 3
+
+metrics:
+  enabled: false       # 指标收集
+  query_length_limit: 100
+```
+
+所有功能默认关闭，与 v0.5.0 行为完全一致。启用后自动接入相应增强能力。
+
 ## 配置参考
 
 完整配置见 `.env.example`。

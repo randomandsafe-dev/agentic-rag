@@ -35,8 +35,6 @@ def set_agent_user(user: UserContext | None) -> None:
     _current_user = user
 
 
-
-
 def format_documents(documents: list[Document]) -> str:
     if not documents:
         return "未检索到相关内容。"
@@ -69,7 +67,9 @@ def search_knowledge_base(query: str) -> str:
 SYSTEM_PROMPT = """你是一个严谨的中文知识库助手。
 对于任何可能需要本地资料支撑的问题，先调用 search_knowledge_base；必要时可以用不同关键词多次检索。
 只依据工具返回的资料作答，不要编造。若资料不足，请明确说明。
-回答末尾以“来源：...”列出实际使用的文件路径；引用时使用工具结果中的来源路径。
+如果用户询问有哪些知识库可用，调用 list_knowledge_bases。
+在给出最终回答前，如条件允许，调用 verify_retrieval_result 自检。
+回答末尾以"来源：..."列出实际使用的文件路径；引用时使用工具结果中的来源路径。
 普通寒暄无需调用工具。"""
 
 
@@ -80,11 +80,13 @@ def build_agent(checkpointer=None):
         checkpointer: 可选的 LangGraph checkpointer（如 SqliteSaver）。
                       传入后 Agent 对话状态将自动持久化。
     """
+    from agent.tools.knowledge_tools import list_knowledge_bases, verify_retrieval_result
+
     settings.validate()
     model = create_llm(temperature=0)
     return create_agent(
         model=model,
-        tools=[search_knowledge_base],
+        tools=[search_knowledge_base, list_knowledge_bases, verify_retrieval_result],
         system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,
     )

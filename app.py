@@ -161,6 +161,11 @@ def render_sidebar() -> None:
     st.sidebar.caption("支持 Markdown、TXT、PDF。上传后点击「写入并重建索引」。")
     _render_kb_panel(mm)
 
+    # ---- KB 状态 ----
+    st.sidebar.divider()
+    st.sidebar.header("📋 知识库状态")
+    _render_kb_status()
+
     # ---- 用户身份 ----
     st.sidebar.divider()
     st.sidebar.header("👤 用户身份")
@@ -301,6 +306,29 @@ def _render_kb_panel(mm: MemoryManager) -> None:
             )
         except Exception as exc:
             st.sidebar.error(f"入库失败：{exc}")
+
+
+def _render_kb_status() -> None:
+    """渲染侧栏中的 KB 状态列表。"""
+    try:
+        from knowledge.management import KnowledgeManager
+        mgr = KnowledgeManager()
+        kbs = mgr.list_knowledge_bases()
+    except Exception as exc:
+        st.sidebar.caption(f"无法加载 KB 列表：{exc}")
+        return
+
+    if not kbs:
+        st.sidebar.caption("暂无已配置的知识库。")
+        return
+
+    for kb in kbs:
+        status_icon = "🟢" if kb["enabled"] else "🔴"
+        default_mark = " ⭐" if kb["default"] else ""
+        st.sidebar.caption(
+            f"{status_icon} **{kb['name']}**{default_mark}\n\n"
+            f"`{kb['id']}` — {kb.get('description', '')}"
+        )
 
 
 # ============================================================

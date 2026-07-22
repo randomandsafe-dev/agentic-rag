@@ -1,0 +1,3 @@
+# 检索指标配置 (Phase 6)
+metrics:
+  enabled: false        # 是否启用指标收集（默认关闭）

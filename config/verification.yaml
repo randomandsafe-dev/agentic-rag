@@ -1,0 +1,5 @@
+# 检索验证配置 (Phase 6)
+verification:
+  enabled: false        # 是否启用检索后验证（默认关闭）
+  max_retry: 2          # 最大重试次数
+  min_score: 0.5        # 低于此分数触发重试

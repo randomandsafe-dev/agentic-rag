@@ -11,9 +11,15 @@ from functools import lru_cache
 from langchain_core.documents import Document
 
 from config import settings
+import time
+
+from runtime_loader import load_runtime_config
 from knowledge.access import AccessGuard, UserContext
+from knowledge.concurrent import ConcurrentRetriever
+from knowledge.concurrent_pipeline import ConcurrentPipeline
+from knowledge.metrics import MetricsCollector, NoopMetricsCollector, RetrievalMetrics
 from knowledge.registry import KnowledgeBaseRegistry
-from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter
+from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter, RoutingDecision
 from llm_factory import create_llm
 from search_pipeline import SearchPipeline, QueryRewriter, LLMRelevanceJudge
 
@@ -33,6 +39,24 @@ class KnowledgeService:
             judge=LLMRelevanceJudge(self._llm),
         )
         self._access_guard = AccessGuard()
+        self._concurrent = ConcurrentRetriever()
+        self._concurrent_pipeline = ConcurrentPipeline()
+
+        # Phase 6: runtime config
+        rt = load_runtime_config()
+        self._metrics = (
+            MetricsCollector() if rt.metrics.enabled else NoopMetricsCollector()
+        )
+
+        # Phase 6: self-correction loop
+        from agent.verifier import RetrievalVerifier
+        from agent.self_correction.controller import SelfCorrectionController
+        self._self_correction = SelfCorrectionController(
+            RetrievalVerifier(self._llm),
+            enabled=rt.self_correction.enabled,
+            max_iterations=rt.self_correction.max_iterations,
+            min_score=rt.verification.min_score,
+        )
 
     def _build_router(self) -> KnowledgeRouter:
         """根据 settings.router_strategy 构造路由策略与 KnowledgeRouter。"""
@@ -58,14 +82,66 @@ class KnowledgeService:
             query: 用户查询。
             user: 可选的用户上下文；None 时跳过权限过滤。
 
-        调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever。
+        调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever → Verifier。
         """
-        domains = self._registry.list_domains()
+        import uuid
+        started = time.time()
+        m = RetrievalMetrics(
+            request_id=uuid.uuid4().hex[:12],
+            query=query[:100],
+            user_id=user.user_id if user else None,
+        )
 
-        if user is not None:
-            domains = self._access_guard.filter_domains(user, domains)
+        try:
+            domains = self._registry.list_domains()
 
-        decision = self._router.route(query, domains)
+            if user is not None:
+                domains = self._access_guard.filter_domains(user, domains)
+
+            decision = self._router.route(query, domains)
+            m.domain_ids = decision.domain_ids
+
+            # 初次检索
+            docs = self._retrieve_docs(query, decision)
+
+            # Phase 6: 自纠正闭环
+            docs, vresult = self._self_correction.run(
+                query, docs,
+                retriever_fn=lambda q: self._retrieve_docs(q, decision),
+            )
+
+            m.retrieval_count = len(docs)
+            if vresult is not None:
+                m.verification_score = vresult.score
+                m.verification_passed = vresult.passed
+
+            return docs
+        except Exception as exc:
+            m.error = str(exc)
+            raise
+        finally:
+            m.latency_ms = (time.time() - started) * 1000
+            self._metrics.record(m)
+
+    # ------------------------------------------------------------------
+    # 内部
+    # ------------------------------------------------------------------
+
+    def _retrieve_docs(
+        self,
+        query: str,
+        decision: RoutingDecision,
+    ) -> list[Document]:
+        """根据路由决策执行检索。"""
+        if len(decision.domain_ids) > 1:
+            retrievers = {
+                did: self._registry.get_retriever(did)
+                for did in decision.domain_ids
+            }
+            return self._concurrent_pipeline.retrieve(
+                query, retrievers, self._pipeline,
+            )
+
         retriever = self._registry.get_retriever(decision.domain_id)
         return self._pipeline.retrieve(query, retriever)
 
@@ -100,6 +176,11 @@ class KnowledgeService:
     def invalidate(self) -> None:
         """清空内部缓存（重建索引后调用）。"""
         self._registry.invalidate()
+
+
+# ------------------------------------------------------------------
+# 配置加载
+# ------------------------------------------------------------------
 
 
 # ------------------------------------------------------------------
