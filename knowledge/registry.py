@@ -65,7 +65,10 @@ class KnowledgeBaseRegistry:
                 persist_dir=ROOT_DIR / entry.get("persist_dir", f"chroma_db/{entry['id']}"),
                 collection_name=entry.get("collection_name", f"kb_{entry['id']}"),
                 default=bool(entry.get("default", False)),
+                enabled=bool(entry.get("enabled", True)),
                 keywords=entry.get("keywords", []),
+                metadata=entry.get("metadata", {}),
+                access_level=entry.get("access_level", "public"),
             )
             self._domains[domain.id] = domain
 
