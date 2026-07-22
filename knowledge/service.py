@@ -12,6 +12,7 @@ from langchain_core.documents import Document
 
 from config import settings
 from knowledge.access import AccessGuard, UserContext
+from knowledge.concurrent import ConcurrentRetriever
 from knowledge.registry import KnowledgeBaseRegistry
 from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter
 from llm_factory import create_llm
@@ -33,6 +34,7 @@ class KnowledgeService:
             judge=LLMRelevanceJudge(self._llm),
         )
         self._access_guard = AccessGuard()
+        self._concurrent = ConcurrentRetriever()
 
     def _build_router(self) -> KnowledgeRouter:
         """根据 settings.router_strategy 构造路由策略与 KnowledgeRouter。"""
@@ -59,6 +61,7 @@ class KnowledgeService:
             user: 可选的用户上下文；None 时跳过权限过滤。
 
         调用链：AccessGuard → Router → Registry → SearchPipeline → Retriever。
+        多 domain 时自动使用并发检索。
         """
         domains = self._registry.list_domains()
 
@@ -66,6 +69,19 @@ class KnowledgeService:
             domains = self._access_guard.filter_domains(user, domains)
 
         decision = self._router.route(query, domains)
+
+        # 并发多 KB 检索
+        if len(decision.domain_ids) > 1:
+            retrievers = {
+                did: self._registry.get_retriever(did)
+                for did in decision.domain_ids
+            }
+            docs = self._concurrent.search(query, retrievers)
+            # 单文档也走 pipeline 的 reranker 逻辑？
+            # 并发结果已去重，直接返回
+            return docs
+
+        # 单 KB 路径（现有行为，完全不变）
         retriever = self._registry.get_retriever(decision.domain_id)
         return self._pipeline.retrieve(query, retriever)
 
