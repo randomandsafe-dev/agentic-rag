@@ -2,8 +2,8 @@
 
 > **注意**：本文档为历史设计文档（Phase 1.0）。当前架构已演进为
 > `KnowledgeService → KnowledgeRouter → KnowledgeBaseRegistry → SearchPipeline → HybridRetriever`。
-> 部分代码示例中的类名（`VectorScoreJudge`、`HybridJudge`、`get_retrieval_pipeline()`）
-> 在当前版本已删除或重命名。最新架构参见项目源码。
+> 下文代码示例中的 `VectorScoreJudge`、`HybridJudge`、`get_retrieval_pipeline()` 为 Phase 1 原始设计，
+> 在当前版本已替换为 `SearchPipeline` + `LLMRelevanceJudge`。最新架构参见项目源码。
 
 ## 一、项目现状分析
 
@@ -256,12 +256,12 @@ def search_knowledge_base(query: str) -> str:
         return format_documents(get_retriever().invoke(query))
     except ...
 
-# 改为：
+# 当前实现（Phase 6+）：
 @tool
 def search_knowledge_base(query: str) -> str:
     try:
-        pipeline = get_retrieval_pipeline()  # 新增
-        documents = pipeline.retrieve(query)  # 替代原来的 retriever.invoke
+        from knowledge.service import get_knowledge_service
+        documents = get_knowledge_service().search(query, user=_current_user)
         return format_documents(documents)
     except ...
 ```
