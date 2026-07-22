@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import sqlite3
 from pathlib import Path
 
@@ -111,11 +112,15 @@ def get_memory_manager() -> MemoryManager:
 
 
 def reset_agent_caches() -> None:
-    """Ensure a newly rebuilt index is used immediately."""
+    """Release cached retrievers so a rebuilt index can replace its files."""
     get_vector_store.cache_clear()
     get_hybrid_retriever.cache_clear()
     get_knowledge_service().invalidate()
     get_memory_manager.clear()
+    # Chroma can keep memory-mapped index files open until the retriever objects
+    # are collected.  This matters on Windows, where an open .bin file cannot be
+    # removed while rebuilding the persistent directory.
+    gc.collect()
 
 
 def delete_all_conversations() -> None:
@@ -350,6 +355,10 @@ def _render_kb_panel(mm: MemoryManager) -> None:
                 uploaded_count += 1
 
             with st.spinner("正在生成向量索引；首次使用本地模型时会下载模型文件..."):
+                # This must happen before ingest_documents(), which replaces the
+                # whole Chroma directory.  Doing it afterwards is too late on
+                # Windows because the old cached store still holds data_level*.bin.
+                reset_agent_caches()
                 document_count, chunk_count = ingest_documents()
                 reset_agent_caches()
             st.sidebar.success(
