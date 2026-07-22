@@ -185,7 +185,7 @@ default:
 ## 6. Testing Status
 
 ```
-57 passed in 1.4s
+56 passed in 1.4s
 
 tests/test_access.py                 14  ✅  AccessPolicy unit tests
 tests/test_service_access.py          8  ✅  KnowledgeService + Guard
