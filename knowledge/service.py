@@ -19,6 +19,7 @@ import yaml
 from config import ROOT_DIR
 from knowledge.access import AccessGuard, UserContext
 from knowledge.concurrent import ConcurrentRetriever
+from knowledge.concurrent_pipeline import ConcurrentPipeline
 from knowledge.registry import KnowledgeBaseRegistry
 from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter, RoutingDecision
 from llm_factory import create_llm
@@ -41,6 +42,7 @@ class KnowledgeService:
         )
         self._access_guard = AccessGuard()
         self._concurrent = ConcurrentRetriever()
+        self._concurrent_pipeline = ConcurrentPipeline()
 
         # Phase 6: verification controller
         from agent.verifier import RetrievalVerifier
@@ -111,7 +113,9 @@ class KnowledgeService:
                 did: self._registry.get_retriever(did)
                 for did in decision.domain_ids
             }
-            return self._concurrent.search(query, retrievers)
+            return self._concurrent_pipeline.retrieve(
+                query, retrievers, self._pipeline,
+            )
 
         retriever = self._registry.get_retriever(decision.domain_id)
         return self._pipeline.retrieve(query, retriever)
