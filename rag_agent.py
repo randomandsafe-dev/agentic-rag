@@ -6,38 +6,19 @@ from functools import lru_cache
 
 from langchain.agents import create_agent
 from langchain_core.documents import Document
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain.tools import tool
 
 from config import settings
-
+from embeddings import get_embeddings  # re-export，保持向后兼容
+from llm_factory import create_llm
 
 # Import is deferred to break circular dependency:
-#   knowledge.registry -> rag_agent (get_embeddings)
 #   rag_agent -> knowledge.service (get_knowledge_service)
 #   knowledge.service -> knowledge.registry
+#   knowledge.registry -> embeddings (terminal, no back-reference)
 # The import happens lazily inside search_knowledge_base().
 
 
-@lru_cache(maxsize=1)
-def get_embeddings():
-    """获取嵌入模型；默认本地模型，避免聊天接口不支持 embeddings 的问题。
-
-    此函数仍被 retrieval_pipeline.py 和 knowledge.registry 导入复用。
-    """
-    if settings.embedding_provider == "openai":
-        return OpenAIEmbeddings(
-            model=settings.openai_embedding_model,
-            api_key=settings.api_key,
-            base_url=settings.base_url,
-        )
-    try:
-        from langchain_community.embeddings import FastEmbedEmbeddings
-    except ImportError as exc:
-        raise RuntimeError("缺少本地嵌入依赖，请运行：pip install -r requirements.txt") from exc
-    return FastEmbedEmbeddings(
-        model_name=settings.local_embedding_model,
-    )
 
 
 def format_documents(documents: list[Document]) -> str:
@@ -55,7 +36,9 @@ def format_documents(documents: list[Document]) -> str:
 @tool
 def search_knowledge_base(query: str) -> str:
     """在本地知识库中检索与问题相关的材料。回答知识库相关问题前必须调用此工具。
-    内部自动进行查询改写、相关性判断、最多两次重试（可通过 .env 配置）。"""
+
+    内部自动根据查询内容路由到最相关的知识库，执行 BM25+向量混合检索，
+    经 Cross-Encoder 重排序后返回 top_k 结果。"""
     try:
         from knowledge.service import get_knowledge_service
 
@@ -82,12 +65,7 @@ def build_agent(checkpointer=None):
                       传入后 Agent 对话状态将自动持久化。
     """
     settings.validate()
-    model = ChatOpenAI(
-        model=settings.model,
-        api_key=settings.api_key,
-        base_url=settings.base_url,
-        temperature=0,
-    )
+    model = create_llm(temperature=0)
     return create_agent(
         model=model,
         tools=[search_knowledge_base],

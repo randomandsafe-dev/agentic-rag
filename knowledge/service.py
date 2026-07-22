@@ -1,36 +1,67 @@
 """KnowledgeService —— Agent 层的统一检索入口。
 
-Agent 只通过此类访问知识库，不直接感知 Collection / Retriever 等底层细节。
-Phase 1：仅单 KB 代理；Phase 2 接入 Router。
+Agent 只通过此类访问知识库，不直接感知 Collection / Retriever / Router 等底层细节。
+Phase 2.5：接入 SearchPipeline，形成统一的搜索编排链路。
 """
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 
 from langchain_core.documents import Document
 
 from knowledge.registry import KnowledgeBaseRegistry
+from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter
+from llm_factory import create_llm
+from search_pipeline import SearchPipeline, QueryRewriter, LLMRelevanceJudge
 
 
 class KnowledgeService:
     """知识库检索的统一门面。
 
-    Phase 1：直接委托给默认 domain 的 HybridRetriever。
-    Phase 2：接入 KnowledgeRouter 实现多 KB 自动路由。
+    Phase 2.5：Router → Registry → SearchPipeline → Retriever 完整链路。
     Phase 3：接入 AccessGuard 实现权限过滤。
     """
 
     def __init__(self) -> None:
         self._registry = KnowledgeBaseRegistry()
+        self._llm = create_llm(temperature=0)
+        self._router = self._build_router()
+        self._pipeline = SearchPipeline(
+            rewriter=QueryRewriter(self._llm),
+            judge=LLMRelevanceJudge(self._llm),
+        )
+
+    def _build_router(self) -> KnowledgeRouter:
+        """根据环境变量 ROUTER_STRATEGY 构造路由策略与 KnowledgeRouter。"""
+        strategy_name = os.getenv("ROUTER_STRATEGY", "llm").strip().lower()
+
+        if strategy_name == "keyword":
+            strategy = KeywordRouter()
+        else:
+            strategy = LLMRouter(self._llm)
+
+        return KnowledgeRouter(strategy)
+
+    # ------------------------------------------------------------------
+    # 检索
+    # ------------------------------------------------------------------
 
     def search(self, query: str) -> list[Document]:
         """检索与查询最相关的文档。
 
-        Phase 1：始终使用默认 domain。
-        Phase 2：Router 根据 query 选择 domain(s)。
+        调用链：Router → Registry → SearchPipeline → Retriever。
         """
-        return self._registry.get_default_retriever().search(query)
+        domains = self._registry.list_domains()
+        # Phase 3: domains = self._access_guard.filter(domains, user)
+        decision = self._router.route(query, domains)
+        retriever = self._registry.get_retriever(decision.domain_id)
+        return self._pipeline.retrieve(query, retriever)
+
+    # ------------------------------------------------------------------
+    # 元数据
+    # ------------------------------------------------------------------
 
     def list_domains(self) -> list[dict[str, object]]:
         """列出所有可用知识库的摘要信息（供 Agent 或 UI 展示）。"""
@@ -50,7 +81,7 @@ class KnowledgeService:
 
 
 # ------------------------------------------------------------------
-# 模块级单例（替代 rag_agent 中旧的 get_hybrid_retriever 缓存）
+# 模块级单例
 # ------------------------------------------------------------------
 
 

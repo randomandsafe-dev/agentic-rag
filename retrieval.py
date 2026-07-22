@@ -43,8 +43,16 @@ class HybridRetriever:
     4. 返回 top_k 条最相关文档
     """
 
-    def __init__(self, vector_store: Chroma) -> None:
+    def __init__(self, vector_store: Chroma, *, persist_dir: Path) -> None:
+        """初始化混合检索器。
+
+        Args:
+            vector_store: Chroma 向量库实例。
+            persist_dir: BM25 索引文件所在目录（由调用方显式传入，
+                         不再从 settings 读取，实现 domain 级解耦）。
+        """
         self.vector_store = vector_store
+        self._persist_dir = persist_dir
         # 如果需要 rerank，先多取一些候选；否则直接取 top_k
         fetch_k = settings.rerank_top_k if settings.reranker_enabled else settings.top_k
         self.vector_retriever = vector_store.as_retriever(
@@ -66,7 +74,7 @@ class HybridRetriever:
 
     def _load_bm25(self) -> None:
         """从磁盘加载 BM25 索引。"""
-        bm25_path = settings.persist_dir / "bm25_index.pkl"
+        bm25_path = self._persist_dir / "bm25_index.pkl"
         if not bm25_path.exists():
             return
         with open(bm25_path, "rb") as fh:

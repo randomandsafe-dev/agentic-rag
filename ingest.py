@@ -15,7 +15,7 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from config import ROOT_DIR, settings
-from rag_agent import get_embeddings
+from embeddings import get_embeddings
 from retrieval import build_bm25_index
 
 SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf"}

@@ -2,6 +2,7 @@
 
 from knowledge.domain import KnowledgeDomain
 from knowledge.registry import KnowledgeBaseRegistry
+from knowledge.router import RoutingDecision, RouterStrategy
 from knowledge.service import KnowledgeService, get_knowledge_service
 
 __all__ = [
@@ -9,4 +10,6 @@ __all__ = [
     "KnowledgeBaseRegistry",
     "KnowledgeService",
     "get_knowledge_service",
+    "RoutingDecision",
+    "RouterStrategy",
 ]
