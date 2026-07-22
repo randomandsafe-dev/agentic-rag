@@ -44,14 +44,14 @@ class KnowledgeService:
         self._concurrent = ConcurrentRetriever()
         self._concurrent_pipeline = ConcurrentPipeline()
 
-        # Phase 6: verification controller
+        # Phase 6: self-correction loop
         from agent.verifier import RetrievalVerifier
-        from agent.verification.controller import VerificationController
+        from agent.self_correction.controller import SelfCorrectionController
         vconfig = _load_verification_config()
-        self._verification = VerificationController(
+        self._self_correction = SelfCorrectionController(
             RetrievalVerifier(self._llm),
             enabled=vconfig.get("enabled", False),
-            max_retry=vconfig.get("max_retry", 2),
+            max_iterations=vconfig.get("max_retry", 2) + 1,  # +1 for initial verify
             min_score=vconfig.get("min_score", 0.5),
         )
 
@@ -91,8 +91,8 @@ class KnowledgeService:
         # 初次检索
         docs = self._retrieve_docs(query, decision)
 
-        # Phase 6: 检索验证 + 按需重试
-        docs, _ = self._verification.verify_and_retry(
+        # Phase 6: 自纠正闭环
+        docs, _ = self._self_correction.run(
             query, docs,
             retriever_fn=lambda q: self._retrieve_docs(q, decision),
         )
