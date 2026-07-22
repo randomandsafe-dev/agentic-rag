@@ -52,10 +52,11 @@ class Settings:
     memory_db_path: Path = ROOT_DIR / os.getenv("MEMORY_DB_PATH", "conversations.db")
     session_window: int = int(os.getenv("SESSION_WINDOW", "20"))
 
-    # ---- 知识库配置 ----
+    # ---- 知识库路由 ----
+    router_strategy: str = os.getenv("ROUTER_STRATEGY", "llm").lower()
     kb_config_path: Path = ROOT_DIR / os.getenv("KB_CONFIG_PATH", "knowledge_bases.yaml")
 
-    # ---- 检索增强配置 (新增) ----
+    # ---- 检索增强配置 ----
     rewrite_enabled: bool = field(
         default_factory=lambda: _bool_env("REWRITE_ENABLED", True)
     )
@@ -65,7 +66,6 @@ class Settings:
     relevance_strategy: str = os.getenv("RELEVANCE_STRATEGY", "llm").lower()
     max_retries: int = int(os.getenv("MAX_RETRIES", "2"))
     relevance_threshold: int = int(os.getenv("RELEVANCE_THRESHOLD", "2"))
-    rewrite_model: str | None = os.getenv("REWRITE_MODEL") or None
 
     def validate(self) -> None:
         if not self.api_key:
@@ -76,9 +76,13 @@ class Settings:
             raise RuntimeError(
                 "EMBEDDING_PROVIDER 只能是 local 或 openai。"
             )
-        if self.relevance_strategy not in {"llm", "vector", "hybrid"}:
+        if self.router_strategy not in {"llm", "keyword"}:
             raise RuntimeError(
-                "RELEVANCE_STRATEGY 只能是 llm、vector 或 hybrid。"
+                "ROUTER_STRATEGY 只能是 llm 或 keyword。"
+            )
+        if self.relevance_strategy not in {"llm"}:
+            raise RuntimeError(
+                "RELEVANCE_STRATEGY 当前仅支持 llm。"
             )
 
 

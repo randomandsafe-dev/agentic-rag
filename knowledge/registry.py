@@ -117,10 +117,6 @@ class KnowledgeBaseRegistry:
             )
         return self._retrievers[domain_id]
 
-    def get_default_retriever(self) -> HybridRetriever:
-        """获取默认 domain 的检索器。"""
-        return self.get_retriever(self.get_default_domain().id)
-
     # ------------------------------------------------------------------
     # 缓存管理
     # ------------------------------------------------------------------

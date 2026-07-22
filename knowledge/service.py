@@ -6,11 +6,11 @@ Phase 2.5：接入 SearchPipeline，形成统一的搜索编排链路。
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 
 from langchain_core.documents import Document
 
+from config import settings
 from knowledge.registry import KnowledgeBaseRegistry
 from knowledge.router import KnowledgeRouter, KeywordRouter, LLMRouter
 from llm_factory import create_llm
@@ -34,10 +34,8 @@ class KnowledgeService:
         )
 
     def _build_router(self) -> KnowledgeRouter:
-        """根据环境变量 ROUTER_STRATEGY 构造路由策略与 KnowledgeRouter。"""
-        strategy_name = os.getenv("ROUTER_STRATEGY", "llm").strip().lower()
-
-        if strategy_name == "keyword":
+        """根据 settings.router_strategy 构造路由策略与 KnowledgeRouter。"""
+        if settings.router_strategy == "keyword":
             strategy = KeywordRouter()
         else:
             strategy = LLMRouter(self._llm)
